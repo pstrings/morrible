@@ -1,4 +1,5 @@
 import os
+import logging
 
 import discord
 from discord.ext import commands
@@ -19,4 +20,4 @@ async def on_ready():
     await bot.load_extension("cogs.moderation")
 
 if __name__ == "__main__":
-    bot.run(os.getenv("DISCORD_TOKEN"))
+    bot.run(os.getenv("DISCORD_TOKEN"), log_level=logging.DEBUG)
