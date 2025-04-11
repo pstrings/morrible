@@ -39,6 +39,25 @@ class Moderation(commands.Cog):
     @require_role(1)
     async def warn(self, ctx, member: discord.Member, *, reason=None):
         """Warns a member in the server"""
+
+        # Prevent self-warn
+        if member.id == ctx.author.id:
+            return await ctx.send("You cannot warn yourself.")
+
+        # Prevent warning the bot
+        if member.id == ctx.bot.user.id:
+            return await ctx.send("You cannot warn the bot.")
+
+        # Role heirarchy check
+        def get_role_level(member):
+            return max((role_level(role.name.lower()) for role in member.roles), default=-1)
+
+        issuer_level = get_role_level(ctx.author)
+        target_level = get_role_level(member)
+
+        if issuer_level <= target_level:
+            return await ctx.send("You cannot warn someone with an equal or higher role.")
+
         try:
             await member.send(f"{member.mention} has been warned for: {reason or 'No reason provided.'}")
             await ctx.send(f"{member.mention} has been warned via DM.")
