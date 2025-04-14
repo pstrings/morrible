@@ -17,7 +17,8 @@ class Morrible(commands.Bot):
 
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
-        await self.tree.sync()  # Registers slash commands
+        # Registers slash commands
+        await self.tree.sync()
 
 
 if __name__ == "__main__":
