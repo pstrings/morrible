@@ -3,6 +3,7 @@ This cog will run the moderation commands like warn, mute, timeout, kick, ban
 """
 import discord
 from discord.ext import commands
+from discord import app_commands
 
 ROLE_HIERARCHY = {
     "the good witch": 3,
@@ -21,8 +22,8 @@ def role_level(name: str) -> str:
 
 def require_role(min_level: int):
     """Check require role level"""
-    async def predicate(ctx):
-        user_roles = [role.name.lower() for role in ctx.author.roles]
+    async def predicate(interaction):
+        user_roles = [role.name.lower() for role in interaction.author.roles]
         user_max = max((role_level(role) for role in user_roles), default=-1)
         if user_max >= min_level:
             return True
@@ -32,38 +33,39 @@ def require_role(min_level: int):
 
 
 class Moderation(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="warn")
+    @app_commands.command(name="warn", description="Warn a member with a reason via DM")
+    @app_commands.describe(member="The user to warn", reason="Why are they being warned?")
     @require_role(1)
-    async def warn(self, ctx, member: discord.Member, *, reason=None):
+    async def warn(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         """Warns a member in the server"""
 
         # Prevent self-warn
-        if member.id == ctx.author.id:
-            return await ctx.send("You cannot warn yourself.")
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("You cannot warn yourself.", ephemeral=False)
 
         # Prevent warning the bot
-        if member.id == ctx.bot.user.id:
-            return await ctx.send("You cannot warn the bot.")
+        if member.id == self.bot.user.id:
+            return await interaction.response.send_message("You cannot warn the bot.", ephemeral=False)
 
         # Role heirarchy check
-        def get_role_level(member):
-            return max((role_level(role.name.lower()) for role in member.roles), default=-1)
+        def get_role_level(user: discord.Member):
+            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
 
-        issuer_level = get_role_level(ctx.author)
+        issuer_level = get_role_level(interaction.user)
         target_level = get_role_level(member)
 
         if issuer_level <= target_level:
-            return await ctx.send("You cannot warn someone with an equal or higher role.")
+            return await interaction.response.send_message("You cannot warn someone with an equal or higher role.", ephemeral=False)
 
         try:
             await member.send(f"{member.mention} has been warned for: {reason or 'No reason provided.'}")
-            await ctx.send(f"{member.mention} has been warned via DM.")
+            await interaction.response.send_message(f"{member.mention} has been warned via DM.", ephemeral=False)
         except discord.Forbidden:
-            await ctx.send(f"{member.mention} could not be warned via DM (they have DMs disabled)")
+            await interaction.response.send_message(f"{member.mention} could not be warned via DM (they have DMs disabled)", ephemeral=False)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
