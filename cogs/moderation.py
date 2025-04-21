@@ -36,6 +36,8 @@ class Moderation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # Warn a member
+
     @app_commands.command(name="warn", description="Warn a member with a reason via DM")
     @app_commands.describe(member="The user to warn", reason="Why are they being warned?")
     @app_commands.guild_only()
@@ -66,6 +68,8 @@ class Moderation(commands.Cog):
             await interaction.response.send_message(f"{member.mention} has been warned via DM.", ephemeral=False)
         except discord.Forbidden:
             await interaction.response.send_message(f"{member.mention} could not be warned via DM (they have DMs disabled)", ephemeral=False)
+
+    # Kick a member
 
     @app_commands.command(name="kick", description="Kick a member with a reason via DM")
     @app_commands.describe(member="The user to kick", reason="Why are they being kicked?")
@@ -100,12 +104,15 @@ class Moderation(commands.Cog):
         except Exception as e:
             await interaction.response.send_message(f"An error occurred: {str(e)}", ephemeral=True)
 
+    # Ban a member
+
     @app_commands.command(name="ban", description="Ban a member with a reason via DM")
     @app_commands.describe(member="The user to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
     @app_commands.guild_only()
     @require_role(2)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, *, reason: str, delete_message_days: int = 0):
         """Command to ban members from the server."""
+
         # Prevent self ban
         if member.id == interaction.user.id:
             await interaction.response.send_message("You are not allowed to ban yourself.", ephemeral=False)
@@ -127,17 +134,48 @@ class Moderation(commands.Cog):
         if delete_message_days < 0 or delete_message_days > 7:
             return await interaction.response.send_message("you can only delete messages upto 7 days. This number can not be less than 0.")
 
+        await interaction.response.defer(thinking=False)
+
         try:
             try:
                 await member.send(f"You have been banned from {interaction.guild.name} for: {reason or 'No reason provided.'}")
             except discord.Forbidden:
-                await interaction.response.send_message("I do not have permission to dm this user.", ephemeral=True)
+                await interaction.followup.send("I do not have permission to dm this user.", ephemeral=True)
             await member.ban(delete_message_days=delete_message_days, reason=reason)
-            await interaction.response.send_message(f"{member.mention} has been banned. Deleted last {delete_message_days} days of messages.", ephemeral=False)
+            await interaction.followup.send(f"{member.mention} has been banned. Deleted last {delete_message_days} days of messages.", ephemeral=False)
         except discord.Forbidden:
-            await interaction.response.send_message("I do not have permission to ban this user.", ephemeral=True)
+            await interaction.followup.send("I do not have permission to ban this user.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"⚠️ An error occurred: `{str(e)}`", ephemeral=True)
+            await interaction.followup.send(f"⚠️ An error occurred: `{str(e)}`", ephemeral=True)
+
+    # Unban a member
+
+    @app_commands.command(name="unban", description="Unban a member with a reason via DM")
+    @app_commands.describe(user="The user to unban", reason="Reason for the unban")
+    @app_commands.guild_only()
+    async def unban(self, interaction: discord.Interaction, user: discord.User, *, reason: str):
+        """This method will unban a user."""
+        # Prevent self unban
+        if user.id == interaction.user.id:
+            await interaction.response.send_message("You are not allowed to unban yourself.", ephemeral=False)
+
+        # Preventing unban on bot
+        if user.id == self.bot.user.id:
+            await interaction.response.send_message("You are not allowed to unban the bot.", ephemeral=False)
+
+        # Check if user is banned
+        banned_users = {}
+        async for ban_entry in interaction.guild.bans():
+            banned_users[ban_entry.user.id] = ban_entry
+
+        if user.id not in banned_users:
+            return await interaction.response.send_message(f"{user} is not currently banned.", ephemeral=False)
+
+        try:
+            await interaction.guild.unban(user, reason=f"Unbanned by {interaction.user} for: {reason}")
+            await interaction.response.send_message(f"{user.mention} has been unbanned. Reason: {reason}", ephemeral=False)
+        except discord.Forbidden:
+            return await interaction.response.send_message("I don't have permission to unban that user.", ephemeral=False)
 
 
 async def setup(bot: commands.Bot):
