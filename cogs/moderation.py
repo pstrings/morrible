@@ -1,6 +1,8 @@
 """
 This cog will run the moderation commands like warn, mute, timeout, kick, ban
 """
+import datetime
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -31,6 +33,33 @@ def require_role(min_level: int):
         raise app_commands.CheckFailure(
             "You don't have permission to use that command")
     return app_commands.check(predicate)
+
+
+def parse_duration(duration_str: str) -> datetime.timedelta | None:
+    """Parses a duration string (e.g., 1h30m) into a timedelta object."""
+    import re
+    pattern = re.compile(r"(\d+)([smhd])")
+    matches = pattern.findall(duration_str.lower())
+
+    if not matches:
+        return None
+
+    total_seconds = 0
+    for amount, unit in matches:
+        amount = int(amount)
+        if unit == "s":
+            total_seconds += amount
+
+        elif unit == "m":
+            total_seconds += amount * 60
+
+        elif unit == "h":
+            total_seconds += amount * 3600
+
+        elif unit == "d":
+            total_seconds += amount * 86400
+
+    return datetime.timedelta(seconds=total_seconds)
 
 
 class BanListView(View):
@@ -245,6 +274,85 @@ class Moderation(commands.Cog):
 
         view = BanListView(bans)
         await interaction.followup.send(embed=view.get_embed(), view=view)
+
+    # Timeout Users
+
+    @app_commands.command(name="timeout", description="Timeout members for a specific duration")
+    @app_commands.describe(member="The member to timeout", duration="The timeout duration (Ex. 1h, 30m, 5m)", reason="Reason for the timeout")
+    @app_commands.guild_only()
+    @require_role(1)
+    async def timeout(self, interaction: discord.Interaction, member: discord.Member, duration: str, *, reason: str):
+        """Timeout a member in the server."""
+
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("You cannot timeout yourself.", ephemeral=False)
+        if member.id == self.bot.user.id:
+            return await interaction.response.send_message("I cannot timeout myself.")
+
+        def get_role_level(user: discord.Member):
+            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
+
+        issuer_level = get_role_level(interaction.user)
+        target_level = get_role_level(member)
+
+        if issuer_level <= target_level:
+            return await interaction.response.send_message("You cannot timeout someone with an equal or higher role.")
+
+        delta = parse_duration(duration)
+        if delta is None:
+            return await interaction.response.send_message("Invalid duration format. Please use formats like '1h', '30m', '5m', '1d12h'.")
+
+        until = discord.utils.utcnow() + delta
+
+        await interaction.response.defer()
+        try:
+            await member.timeout(until, reason=reason)
+            await interaction.followup.send(f"{member.mention} has been timed out for {duration}. Reason: {reason}")
+            try:
+                await member.send(f"You have been timed out in {interaction.guild.name} for {duration}. Reason: {reason}")
+            except discord.Forbidden:
+                await interaction.followup.send("Could not DM the user about the timeout.")
+        except discord.Forbidden:
+            await interaction.followup.send("I do not have permission to timeout this user.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+
+    # Remove Timeout
+
+    @app_commands.command(name="untimeout", description="Remove the timeout from a member")
+    @app_commands.describe(member="The member to remove the timeout from", reason="Reason for removing the timeout")
+    @app_commands.guild_only()
+    @require_role(1)
+    async def untimeout(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
+        """Removes the timeout from a member."""
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("You cannot remove your own timeout.")
+        if member.id == self.bot.user.id:
+            return await interaction.response.send_message("I cannot remove my own timeout (I'm not timed out!).")
+
+        def get_role_level(user: discord.Member):
+            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
+
+        issuer_level = get_role_level(interaction.user)
+        target_level = get_role_level(member)
+
+        if issuer_level <= target_level:
+            return await interaction.response.send_message("You cannot remove the timeout from someone with an equal or higher role.")
+
+        await interaction.response.defer()
+        try:
+            if member.timed_out_until is None:
+                return await interaction.followup.send(f"{member.mention} is not currently timed out.")
+            await member.timeout(None, reason=reason)
+            await interaction.followup.send(f"Removed timeout from {member.mention}. Reason: {reason}")
+            try:
+                await member.send(f"Your timeout in {interaction.guild.name} has been removed. Reason: {reason}")
+            except discord.Forbidden:
+                await interaction.followup.send("Could not DM the user about the timeout removal.")
+        except discord.Forbidden:
+            await interaction.followup.send("I do not have permission to remove the timeout from this user.")
+        except Exception as e:
+            await interaction.followup.send(f"An error occurred: {e}")
 
 
 async def setup(bot: commands.Bot):
