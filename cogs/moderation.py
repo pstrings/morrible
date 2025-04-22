@@ -4,6 +4,7 @@ This cog will run the moderation commands like warn, mute, timeout, kick, ban
 import discord
 from discord.ext import commands
 from discord import app_commands
+from discord.ui import View, Button
 
 ROLE_HIERARCHY = {
     "the good witch": 3,
@@ -30,6 +31,58 @@ def require_role(min_level: int):
         raise app_commands.CheckFailure(
             "You don't have permission to use that command")
     return app_commands.check(predicate)
+
+
+class BanListView(View):
+    def __init__(self, banned_users, per_page=10):
+        super().__init__(timeout=60)
+        self.banned_users = banned_users
+        self.per_page = per_page
+        self.current_page = 0
+        self.max_pages = (len(banned_users) - 1) // per_page + 1
+
+        self.prev_button = Button(
+            label="Previous", style=discord.ButtonStyle.primary)
+        self.next_button = Button(
+            label="Next", style=discord.ButtonStyle.primary)
+
+        self.prev_button.callback = self.prev_button
+        self.next_button.callback = self.next_button
+
+        self.update_buttons()
+        self.add_item(self.prev_button)
+        self.add_item(self.next_button)
+
+    def update_buttons(self):
+        self.prev_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page >= self.max_pages - 1
+
+    def get_embed(self):
+        start = self.current_page * self.per_page
+        end = start + self.per_page
+        page_users = self.banned_users[start:end]
+
+        embed = discord.Embed(title="Banned Users",
+                              color=discord.Color.red())
+        for entry in page_users:
+            embed.add_field(
+                name=f"{entry.user} ({entry.user.id})",
+                value=f"Reason: {entry.reason or 'No reason provided'}",
+                inline=False,
+            )
+        embed.set_footer(
+            text=f"Page {self.current_page + 1}/{self.max_pages}")
+        return embed
+
+    async def prev_page(self, interaction: discord.Interaction):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
 
 
 class Moderation(commands.Cog):
@@ -153,6 +206,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="unban", description="Unban a member with a reason via DM")
     @app_commands.describe(user="The user to unban", reason="Reason for the unban")
     @app_commands.guild_only()
+    @require_role(3)
     async def unban(self, interaction: discord.Interaction, user: discord.User, *, reason: str):
         """This method will unban a user."""
         # Prevent self unban
@@ -176,6 +230,21 @@ class Moderation(commands.Cog):
             await interaction.response.send_message(f"{user.mention} has been unbanned. Reason: {reason}", ephemeral=False)
         except discord.Forbidden:
             return await interaction.response.send_message("I don't have permission to unban that user.", ephemeral=False)
+
+    # List all banned users
+
+    @app_commands.command(name="listban", description="List all the banned users")
+    @app_commands.guild_only()
+    @require_role(1)
+    async def list_ban(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        bans = [entry async for entry in interaction.guild.bans()]
+        if not bans:
+            return await interaction.followup.send("There are no banned users.", ephemeral=False)
+
+        view = BanListView(bans)
+        await interaction.followup.send(embed=view.get_embed(), view=view)
 
 
 async def setup(bot: commands.Bot):
