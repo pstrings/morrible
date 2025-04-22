@@ -354,6 +354,28 @@ class Moderation(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}")
 
+    # Clear Messages
+
+    @app_commands.command(name="purge", description="Delete a specific number of recent messages")
+    @app_commands.describe(amount="The number of messages to delete (1-100)")
+    @app_commands.guild_only()
+    @require_role(3)
+    async def purge(self, interaction: discord.Interaction, amount: int):
+        """Deletes a specified number of recent messages from the channel."""
+        if amount < 0 or amount > 100:
+            return await interaction.response.send_message("Amount must be between 1 and 100.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # +1 to account for the command message itself
+            deleted = await interaction.channel.purge(limit=amount + 1)
+            await interaction.followup.send(f"Deleted {len(deleted) - 1} messages.")
+        except discord.Forbidden:
+            await interaction.followup.send("I do not have permission to delete messages in this channel.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
