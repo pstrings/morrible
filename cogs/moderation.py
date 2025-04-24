@@ -376,6 +376,32 @@ class Moderation(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
 
+    # Slowmode
+
+    @app_commands.command(name="slowmode", description="Set slowmode in a channel")
+    @app_commands.describe(duration="Time (e.g. 5s, 2m, 1h)", channel="The channel to set slowmode in")
+    @app_commands.guild_only()
+    @require_role(3)
+    async def slowmode(self, interaction: discord.Interaction, duration: str, channel: discord.TextChannel = None):
+        """Sets slowmode for a channel. If channel is not given, current channel is used."""
+        delta = parse_duration(duration)
+        if delta is None:
+            return await interaction.response.send_message("❌ Invalid duration format. Use formats like `10s`, `5m`, `1h30m`")
+
+        delay_seconds = int(delta.total_seconds())
+        if delay_seconds < 0 or delay_seconds > 21600:
+            return await interaction.response.send_message("❌ Slowmode must be between 0s and 6h (21600 seconds).")
+
+        target_channel = channel or interaction.channel
+
+        try:
+            await target_channel.edit(slowmode_delay=delay_seconds)
+            await interaction.response.send_message(f"✅ Slowmode set to `{duration}` seconds in {target_channel.mention}.")
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ I don't have permission to edit this channel.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
