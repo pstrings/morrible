@@ -17,4 +17,4 @@ def run():
 
 def keep_alive():
     bot_thread = Thread(target=run)
-    bot_thread.start
+    bot_thread.start()
