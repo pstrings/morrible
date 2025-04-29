@@ -446,6 +446,21 @@ class Moderation(commands.Cog):
         except Exception as e:
             await interaction.response.send_message(f"An error most foul has occurred: `{str(e)}`")
 
+    # Auto add mute permissions on new channel creation
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel):
+        muted_role = discord.utils.get(channel.guild.roles, name="Muted")
+
+        if muted_role:
+            try:
+                await channel.set_permissions(muted_role, send_messages=False, speak=False, add_reactions=False)
+                print(
+                    f"Updated Muted role permissions for new channel: {channel.name}")
+            except Exception as e:
+                print(
+                    f"Failed to set permissions for new channel {channel.name}: {e}")
+
     # Unmute
 
     @app_commands.command(name="unmute", description="Restore the voice of a once-muted soul.")
