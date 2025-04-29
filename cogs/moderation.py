@@ -62,6 +62,14 @@ def parse_duration(duration_str: str) -> datetime.timedelta | None:
     return datetime.timedelta(seconds=total_seconds)
 
 
+def get_highest_role_level(user: discord.Member) -> int:
+    return max((role_level(role.name.lower()) for role in user.roles), default=-1)
+
+
+async def get_or_create_muted_role(guild: discord.Guild):
+    pass
+
+
 class BanListView(View):
     def __init__(self, banned_users, per_page=10):
         super().__init__(timeout=60)
@@ -75,8 +83,8 @@ class BanListView(View):
         self.next_button = Button(
             label="Next", style=discord.ButtonStyle.primary)
 
-        self.prev_button.callback = self.prev_button
-        self.next_button.callback = self.next_button
+        self.prev_button.callback = self.prev_page
+        self.next_button.callback = self.next_page
 
         self.update_buttons()
         self.add_item(self.prev_button)
@@ -139,8 +147,8 @@ class Moderation(commands.Cog):
         def get_role_level(user: discord.Member):
             return max((role_level(role.name.lower()) for role in user.roles), default=-1)
 
-        issuer_level = get_role_level(interaction.user)
-        target_level = get_role_level(member)
+        issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
             return await interaction.response.send_message("You cannot warn someone with an equal or higher role.", ephemeral=False)
