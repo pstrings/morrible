@@ -143,10 +143,6 @@ class Moderation(commands.Cog):
         if member.id == self.bot.user.id:
             return await interaction.response.send_message("You cannot warn the bot.", ephemeral=False)
 
-        # Role heirarchy check
-        def get_role_level(user: discord.Member):
-            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
-
         issuer_level = get_highest_role_level(interaction.user)
         target_level = get_highest_role_level(member)
 
@@ -175,12 +171,8 @@ class Moderation(commands.Cog):
         if member.id == self.bot.user.id:
             return await interaction.response.send_message("You are not allowed to kick the bot", ephemeral=False)
 
-        # Role heirarchy check
-        def get_role_level(user: discord.Member):
-            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
-
-        issuer_level = get_role_level(interaction.user)
-        target_level = get_role_level(member)
+        issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
             return await interaction.response.send_message("You cannot kick someone with an equal or higher role.", ephemeral=False)
@@ -211,12 +203,8 @@ class Moderation(commands.Cog):
         if member.id == self.bot.user.id:
             await interaction.response.send_message("You are not allowed to ban the bot", ephemeral=False)
 
-        # Role heirarchy check
-        def get_role_level(user: discord.Member):
-            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
-
-        issuer_level = get_role_level(interaction.user)
-        target_level = get_role_level(member)
+        issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
             return await interaction.response.send_message("You cannot ban someone with an equal or higher role.", ephemeral=False)
@@ -297,11 +285,8 @@ class Moderation(commands.Cog):
         if member.id == self.bot.user.id:
             return await interaction.response.send_message("I cannot timeout myself.")
 
-        def get_role_level(user: discord.Member):
-            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
-
-        issuer_level = get_role_level(interaction.user)
-        target_level = get_role_level(member)
+        issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
             return await interaction.response.send_message("You cannot timeout someone with an equal or higher role.")
@@ -338,11 +323,8 @@ class Moderation(commands.Cog):
         if member.id == self.bot.user.id:
             return await interaction.response.send_message("I cannot remove my own timeout (I'm not timed out!).")
 
-        def get_role_level(user: discord.Member):
-            return max((role_level(role.name.lower()) for role in user.roles), default=-1)
-
-        issuer_level = get_role_level(interaction.user)
-        target_level = get_role_level(member)
+        issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
             return await interaction.response.send_message("You cannot remove the timeout from someone with an equal or higher role.")
