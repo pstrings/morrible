@@ -413,7 +413,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="mute", description="Bestow silence upon a misbehaving soul.")
     @app_commands.describe(member="The miscreant to be muted", reason="Reason for the mute")
     @app_commands.guild_only()
-    @role_level(1)
+    @require_role(1)
     async def mute(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         muted_role = await get_or_create_muted_role(interaction.guild)
 
@@ -466,7 +466,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="unmute", description="Restore the voice of a once-muted soul.")
     @app_commands.describe(member="The once-muted to be liberated")
     @app_commands.guild_only()
-    @role_level(1)
+    @require_role(1)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member):
         muted_role = await get_or_create_muted_role(interaction.guild)
 
