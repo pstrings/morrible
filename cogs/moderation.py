@@ -67,7 +67,23 @@ def get_highest_role_level(user: discord.Member) -> int:
 
 
 async def get_or_create_muted_role(guild: discord.Guild):
-    pass
+    muted_role = discord.utils.get(guild.roles, name="Muted")
+
+    if muted_role is None:
+        try:
+            muted_role = await guild.create_role(name="Muted", reason="To silence the disobedient")
+
+            # Set permission in all channels
+            for channel in guild.channels:
+                await channel.set_permissions(muted_role, send_messages=False, speak=False, add_reaction=False)
+
+        except discord.Forbidden:
+            return None
+        except Exception as e:
+            print(f"Failed to create Muted role: {e}")
+            return None
+
+        return muted_role
 
 
 class BanListView(View):
@@ -150,7 +166,7 @@ class Moderation(commands.Cog):
             return await interaction.response.send_message("You cannot warn someone with an equal or higher role.", ephemeral=False)
 
         try:
-            await member.send(f"{member.mention} has been warned for: {reason or 'No reason provided.'}")
+            await member.send(f"{member.mention} has been warned for: {reason}")
             await interaction.response.send_message(f"{member.mention} has been warned via DM.", ephemeral=False)
         except discord.Forbidden:
             await interaction.response.send_message(f"{member.mention} could not be warned via DM (they have DMs disabled)", ephemeral=False)
@@ -178,7 +194,7 @@ class Moderation(commands.Cog):
             return await interaction.response.send_message("You cannot kick someone with an equal or higher role.", ephemeral=False)
 
         try:
-            await member.send(f"{member.mention} has been kicked for: {reason or 'No reason provided.'}")
+            await member.send(f"{member.mention} has been kicked for: {reason}")
             await member.kick(reason=f"Kicked by {interaction.user} for: {reason}")
             await interaction.response.send_message(f"{member.mention} has been kicked from the server. Reason: {reason}", ephemeral=False)
         except discord.Forbidden:
@@ -216,7 +232,7 @@ class Moderation(commands.Cog):
 
         try:
             try:
-                await member.send(f"You have been banned from {interaction.guild.name} for: {reason or 'No reason provided.'}")
+                await member.send(f"You have been banned from {interaction.guild.name} for: {reason}")
             except discord.Forbidden:
                 await interaction.followup.send("I do not have permission to dm this user.", ephemeral=True)
             await member.ban(delete_message_days=delete_message_days, reason=reason)
@@ -392,8 +408,70 @@ class Moderation(commands.Cog):
         except Exception as e:
             await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
 
+    # Mute
+
+    @app_commands.command(name="mute", description="Bestow silence upon a misbehaving soul.")
+    @app_commands.describe(member="The miscreant to be muted", reason="Reason for the mute")
+    @app_commands.guild_only()
+    @role_level(1)
+    async def mute(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
+        muted_role = await get_or_create_muted_role(interaction.guild)
+
+        # Prevent self-mute
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("You cannot mute yourself.", ephemeral=False)
+
+        # Prevent muting the bot
+        if member.id == self.bot.user.id:
+            return await interaction.response.send_message("You cannot mute the bot.", ephemeral=False)
+
+        issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
+
+        if issuer_level <= target_level:
+            return await interaction.response.send_message("You cannot mute someone with an equal or higher role.", ephemeral=False)
+
+        if not muted_role:
+            await interaction.response.send_message("I sought to summon the powers of silence, but was denied. An administrator must intervene.")
+
+        if muted_role in member.roles:
+            await interaction.response.send_message(f"{member.mention} is already shackled by silence.")
+
+        try:
+            await member.add_roles(muted_role)
+            await member.send(f"{member.mention} has been muted for: {reason}")
+            await interaction.response.send_message(f"{member.mention} has been enveloped in a most unbreakable silence. A fitting end for their folly! Reason: {reason}")
+        except discord.Forbidden:
+            await interaction.response.send_message("Alas! I lack the authority to mute this illustrious being.")
+        except Exception as e:
+            await interaction.response.send_message(f"An error most foul has occurred: `{str(e)}`")
+
+    # Unmute
+
+    @app_commands.command(name="unmute", description="Restore the voice of a once-muted soul.")
+    @app_commands.describe(member="The once-muted to be liberated")
+    @app_commands.guild_only()
+    @role_level(1)
+    async def unmute(self, interaction: discord.Interaction, member: discord.Member):
+        muted_role = await get_or_create_muted_role(interaction.guild)
+
+        if not muted_role:
+            await interaction.response.send_message("The forces of silence have left no trace. There is no muting to undo.", ephemeral=True)
+            return
+
+        if muted_role not in member.roles:
+            await interaction.response.send_message(f"{member.mention} is not among the silent ranks.", ephemeral=True)
+            return
+
+        try:
+            await member.remove_roles(muted_role)
+            await member.send(f"{member.mention} has been unmuted")
+            await interaction.response.send_message(f"{member.mention} has been freed from their cursed silence. May they tread carefully henceforth.")
+        except discord.Forbidden:
+            await interaction.response.send_message("I cannot lift the silence from this soul. They are beyond my reach.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"A calamity most unexpected has occurred: `{str(e)}`", ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
-    print(
-        f"Loaded moderation cog with commands: {[cmd.name for cmd in bot.tree.get_commands()]}")
