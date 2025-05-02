@@ -432,10 +432,10 @@ class Moderation(commands.Cog):
             return await interaction.response.send_message("You cannot mute someone with an equal or higher role.", ephemeral=False)
 
         if not muted_role:
-            await interaction.response.send_message("I sought to summon the powers of silence, but was denied. An administrator must intervene.")
+            return await interaction.response.send_message("I sought to summon the powers of silence, but was denied. An administrator must intervene.")
 
         if muted_role in member.roles:
-            await interaction.response.send_message(f"{member.mention} is already shackled by silence.")
+            return await interaction.response.send_message(f"{member.mention} is already shackled by silence.")
 
         try:
             await member.add_roles(muted_role)
@@ -471,11 +471,11 @@ class Moderation(commands.Cog):
         muted_role = await get_or_create_muted_role(interaction.guild)
 
         if not muted_role:
-            await interaction.response.send_message("The forces of silence have left no trace. There is no muting to undo.", ephemeral=True)
+            return await interaction.response.send_message("The forces of silence have left no trace. There is no muting to undo.", ephemeral=True)
             return
 
         if muted_role not in member.roles:
-            await interaction.response.send_message(f"{member.mention} is not among the silent ranks.", ephemeral=True)
+            return await interaction.response.send_message(f"{member.mention} is not among the silent ranks.", ephemeral=True)
             return
 
         try:
