@@ -31,7 +31,7 @@ if __name__ == "__main__":
     async def main():
         await init_db()
         bot = Morrible()
-        await bot.run(os.getenv("DISCORD_TOKEN"), log_level=logging.DEBUG)
+        bot.run(os.getenv("DISCORD_TOKEN"), log_level=logging.DEBUG)
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
