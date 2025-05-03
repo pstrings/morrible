@@ -549,7 +549,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to check infractions for.")
     @require_role(3)
     async def infractions(self, interaction: discord.Interaction, user: discord.Member):
-        async with async_session as session:
+        async with async_session() as session:
             query = select(Infraction).where(Infraction.user_id == user.id)
             result = await session.execute(query)
             infractions = result.scalars().all()
