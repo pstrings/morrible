@@ -42,7 +42,7 @@ async def main():
     bot = Morrible()
     logger.info("Starting bot...")
     async with bot:
-        bot.start(os.getenv("DISCORD_TOKEN"))
+        await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
     asyncio.run(main())
