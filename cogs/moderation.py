@@ -83,7 +83,7 @@ async def get_or_create_muted_role(guild: discord.Guild):
             print(f"Failed to create Muted role: {e}")
             return None
 
-        return muted_role
+    return muted_role
 
 
 class BanListView(View):
