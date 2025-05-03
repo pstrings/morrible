@@ -8,6 +8,8 @@ from discord.ext import commands
 from discord import app_commands
 from discord.ui import View, Button
 
+from database.infraction import async_session, Infraction
+
 ROLE_HIERARCHY = {
     "the good witch": 3,
     "the wicked witch": 3,
@@ -20,11 +22,13 @@ ROLE_HIERARCHY = {
 
 def role_level(name: str) -> str:
     """Returns a role"""
+
     return ROLE_HIERARCHY.get(name.lower(), -1)
 
 
 def require_role(min_level: int):
     """Check require role level"""
+
     async def predicate(interaction: discord.Interaction):
         user_roles = [role.name.lower() for role in interaction.user.roles]
         user_max = max((role_level(role) for role in user_roles), default=-1)
@@ -37,6 +41,7 @@ def require_role(min_level: int):
 
 def parse_duration(duration_str: str) -> datetime.timedelta | None:
     """Parses a duration string (e.g., 1h30m) into a timedelta object."""
+
     import re
     pattern = re.compile(r"(\d+)([smhd])")
     matches = pattern.findall(duration_str.lower())
@@ -63,10 +68,14 @@ def parse_duration(duration_str: str) -> datetime.timedelta | None:
 
 
 def get_highest_role_level(user: discord.Member) -> int:
+    """Get Highest Role Level"""
+
     return max((role_level(role.name.lower()) for role in user.roles), default=-1)
 
 
 async def get_or_create_muted_role(guild: discord.Guild):
+    """Get or Create Muted Role"""
+
     muted_role = discord.utils.get(guild.roles, name="Muted")
 
     if muted_role is None:
@@ -84,6 +93,22 @@ async def get_or_create_muted_role(guild: discord.Guild):
             return None
 
     return muted_role
+
+
+async def save_infraction(user_id: int, moderator_id: int, infraction_type: str, reason: str, duration_seconds: int = None):
+    """Save user infractions in database"""
+
+    async with async_session() as session:
+        new_infraction = Infraction(
+            user_id=user_id,
+            moderator_id=moderator_id,
+            infraction_type=infraction_type,
+            reason=reason,
+            duration_seconds=duration_seconds
+        )
+
+        session.add(new_infraction)
+        await session.commit()
 
 
 class BanListView(View):
@@ -168,6 +193,12 @@ class Moderation(commands.Cog):
         try:
             await member.send(f"{member.mention} has been warned for: {reason}")
             await interaction.response.send_message(f"{member.mention} has been warned via DM.", ephemeral=False)
+            await save_infraction(
+                user_id=member.id,
+                moderator_id=interaction.user.id,
+                infraction_type="warn",
+                reason=reason
+            )
         except discord.Forbidden:
             await interaction.response.send_message(f"{member.mention} could not be warned via DM (they have DMs disabled)", ephemeral=False)
 
