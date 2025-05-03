@@ -547,8 +547,10 @@ class Moderation(commands.Cog):
     # List User Infractions:
     @app_commands.command(name="infractions", description="Show all infractions for a user.")
     @app_commands.describe(user="The user to check infractions for.")
-    @require_role(3)
+    @app_commands.guild_only()
+    @require_role(2)
     async def infractions(self, interaction: discord.Interaction, user: discord.Member):
+        """To list all infractions for a user"""
         async with async_session() as session:
             query = select(Infraction).where(Infraction.user_id == user.id)
             result = await session.execute(query)
@@ -571,6 +573,29 @@ class Moderation(commands.Cog):
                 )
 
             await interaction.response.send_message(embed=embed)
+
+    # Clear Infractions for user
+    @app_commands.command(name="clearinfractions", description="Clear all infractions for a user.")
+    @app_commands.describe(user="The user to clear infractions for.")
+    @app_commands.guild_only()
+    @require_role(3)
+    async def clearinfractions(self, interaction: discord.Interaction, user: discord.Member):
+        """To clear all infractions by a user."""
+        async with async_session() as session:
+            query = select(Infraction).where(Infraction.user_id == user.id)
+            result = await session.execute(query)
+            infractions = result.scalars().all()
+
+            if not infractions:
+                await interaction.response.send_message(f"✅ {user.mention} has no infractions to clear.", ephemeral=True)
+                return
+
+            for infraction in infractions:
+                await session.delete(infraction)
+
+            await session.commit()
+
+            await interaction.response.send_message(f"🗑️ Cleared all infractions for {user.mention}.", ephemeral=False)
 
 
 async def setup(bot: commands.Bot):
