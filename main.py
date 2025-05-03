@@ -9,9 +9,15 @@ from dotenv import load_dotenv
 from database.infraction import init_db
 from keep_alive import keep_alive
 
+# Load environment variables
 load_dotenv()
 
+# Start Flask Web Server
 keep_alive()
+
+# Configure Logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("morrible")
 
 
 class Morrible(commands.Bot):
@@ -25,13 +31,18 @@ class Morrible(commands.Bot):
         await self.load_extension("cogs.moderation")
         # Registers slash commands
         await self.tree.sync()
+        logger.info("Cogs loaded and slash commands synced.")
 
+
+async def main():
+    logger.info("Initializing database...")
+    await init_db()
+    logger.info("Database initialized.")
+
+    bot = Morrible()
+    logger.info("Starting bot...")
+    async with bot:
+        bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
-    async def main():
-        await init_db()
-        bot = Morrible()
-        bot.run(os.getenv("DISCORD_TOKEN"), log_level=logging.DEBUG)
-
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    asyncio.run(main())
