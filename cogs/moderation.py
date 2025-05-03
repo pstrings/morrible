@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from discord.ui import View, Button
+from sqlalchemy import select
 
 from database.infraction import async_session, Infraction
 
@@ -228,6 +229,12 @@ class Moderation(commands.Cog):
             await member.send(f"{member.mention} has been kicked for: {reason}")
             await member.kick(reason=f"Kicked by {interaction.user} for: {reason}")
             await interaction.response.send_message(f"{member.mention} has been kicked from the server. Reason: {reason}", ephemeral=False)
+            await save_infraction(
+                user_id=member.id,
+                moderator_id=interaction.user.id,
+                infraction_type="kick",
+                reason=reason
+            )
         except discord.Forbidden:
             await interaction.response.send_message("I do not have permission to kick this user.", ephemeral=True)
         except Exception as e:
@@ -268,6 +275,12 @@ class Moderation(commands.Cog):
                 await interaction.followup.send("I do not have permission to dm this user.", ephemeral=True)
             await member.ban(delete_message_days=delete_message_days, reason=reason)
             await interaction.followup.send(f"{member.mention} has been banned. Deleted last {delete_message_days} days of messages.", ephemeral=False)
+            await save_infraction(
+                user_id=member.id,
+                moderator_id=interaction.user.id,
+                infraction_type="ban",
+                reason=reason
+            )
         except discord.Forbidden:
             await interaction.followup.send("I do not have permission to ban this user.", ephemeral=True)
         except Exception as e:
@@ -350,6 +363,13 @@ class Moderation(commands.Cog):
             await interaction.followup.send(f"{member.mention} has been timed out for {duration}. Reason: {reason}")
             try:
                 await member.send(f"You have been timed out in {interaction.guild.name} for {duration}. Reason: {reason}")
+                await save_infraction(
+                    user_id=member.id,
+                    moderator_id=interaction.user.id,
+                    infraction_type="timeout",
+                    reason=reason,
+                    duration_seconds=until
+                )
             except discord.Forbidden:
                 await interaction.followup.send("Could not DM the user about the timeout.")
         except discord.Forbidden:
@@ -472,6 +492,12 @@ class Moderation(commands.Cog):
             await member.add_roles(muted_role)
             await member.send(f"{member.mention} has been muted for: {reason}")
             await interaction.response.send_message(f"{member.mention} has been enveloped in a most unbreakable silence. A fitting end for their folly! Reason: {reason}")
+            await save_infraction(
+                user_id=member.id,
+                moderator_id=interaction.user.id,
+                infraction_type="mute",
+                reason=reason
+            )
         except discord.Forbidden:
             await interaction.response.send_message("Alas! I lack the authority to mute this illustrious being.")
         except Exception as e:
@@ -517,6 +543,34 @@ class Moderation(commands.Cog):
             await interaction.response.send_message("I cannot lift the silence from this soul. They are beyond my reach.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"A calamity most unexpected has occurred: `{str(e)}`", ephemeral=True)
+
+    # List User Infractions:
+    @app_commands.command(name="infractions", description="Show all infractions for a user.")
+    @app_commands.describe(user="The user to check infractions for.")
+    @require_role(3)
+    async def infractions(self, interaction: discord.Interaction, user: discord.Member):
+        async with async_session as session:
+            query = select(Infraction).where(Infraction.user_id == user.id)
+            result = await session.execute(query)
+            infractions = result.scalars().all()
+
+            if not infractions:
+                return await interaction.response.send_message(f"✅ {user.mention} has no infractions.", ephemeral=False)
+
+            embed = discord.Embed(
+                title=f"Infractions for {user}",
+                color=discord.Color.purple()
+            )
+            for infraction in infractions:
+                timestamp = infraction.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                duration = f" | Duration: {infraction.duration_seconds} seconds" if infraction.duration_seconds else ""
+                embed.add_field(
+                    name=f"Type: {infraction.infraction_type.upper()}",
+                    value=f"Reason: {infraction.reason or 'No reason provided'}\nDate: {timestamp}{duration}",
+                    inline=False
+                )
+
+            await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):
