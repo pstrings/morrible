@@ -8,6 +8,8 @@ from discord.ext import commands
 from discord import app_commands
 from discord.ui import View, Button
 from sqlalchemy import select
+from collections import Counter
+from typing import Callable, Tuple
 
 from database.infraction import async_session, Infraction
 
@@ -112,13 +114,24 @@ async def save_infraction(user_id: int, moderator_id: int, infraction_type: str,
         await session.commit()
 
 
-class BanListView(View):
-    def __init__(self, banned_users, per_page=10):
+# Generalized Paginated View
+class PaginatedEmbedView(View):
+    def __init__(
+        self,
+        entries: list,
+        per_page: int = 5,
+        title: str = "Entries",
+        formatter: Callable = None,
+        color: discord.Color = discord.Color.blurple()
+    ):
         super().__init__(timeout=60)
-        self.banned_users = banned_users
+        self.entries = entries
         self.per_page = per_page
         self.current_page = 0
-        self.max_pages = (len(banned_users) - 1) // per_page + 1
+        self.max_pages = (len(entries) - 1) // per_page + 1
+        self.title = title
+        self.formatter = formatter or (lambda x: (str(x), ""))
+        self.color = color
 
         self.prev_button = Button(
             label="Previous", style=discord.ButtonStyle.primary)
@@ -139,18 +152,14 @@ class BanListView(View):
     def get_embed(self):
         start = self.current_page * self.per_page
         end = start + self.per_page
-        page_users = self.banned_users[start:end]
+        entries = self.entries[start:end]
 
-        embed = discord.Embed(title="Banned Users",
-                              color=discord.Color.red())
-        for entry in page_users:
-            embed.add_field(
-                name=f"{entry.user} ({entry.user.id})",
-                value=f"Reason: {entry.reason or 'No reason provided'}",
-                inline=False,
-            )
-        embed.set_footer(
-            text=f"Page {self.current_page + 1}/{self.max_pages}")
+        embed = discord.Embed(title=self.title, color=self.color)
+        for entry in entries:
+            name, value = self.formatter(entry)
+            embed.add_field(name=name, value=value, inline=False)
+
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self.max_pages}")
         return embed
 
     async def prev_page(self, interaction: discord.Interaction):
@@ -328,7 +337,20 @@ class Moderation(commands.Cog):
         if not bans:
             return await interaction.followup.send("There are no banned users.", ephemeral=False)
 
-        view = BanListView(bans)
+        def formatter(entry: discord.guild.BanEntry):
+            user = entry.user
+            reason = entry.reason
+            name = f"{user.name}#{user.discriminator} (ID: {user.id})"
+            value = f"Reason: {reason}"
+            return name, value
+
+        view = PaginatedEmbedView(
+            entries=bans,
+            per_page=10,
+            title="🚫 Banned Users",
+            formatter=formatter,
+            color=discord.Color.purple()
+        )
         await interaction.followup.send(embed=view.get_embed(), view=view)
 
     # Timeout Users
@@ -545,34 +567,48 @@ class Moderation(commands.Cog):
             await interaction.response.send_message(f"A calamity most unexpected has occurred: `{str(e)}`", ephemeral=True)
 
     # List User Infractions:
-    @app_commands.command(name="infractions", description="Show all infractions for a user.")
-    @app_commands.describe(user="The user to check infractions for.")
-    @app_commands.guild_only()
-    @require_role(2)
-    async def infractions(self, interaction: discord.Interaction, user: discord.Member):
-        """To list all infractions for a user"""
+    @app_commands.command(name="infractions", description="Show all infractions for a user by ID.")
+    @app_commands.describe(user_id="The user ID to check infractions for.")
+    async def infractions(self, interaction: discord.Interaction, user_id: str):
+        """Shows all infractions for any user ID (even if not in server)"""
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return await interaction.response.send_message("❌ Invalid user ID.", ephemeral=False)
+
         async with async_session() as session:
-            query = select(Infraction).where(Infraction.user_id == user.id)
-            result = await session.execute(query)
+            result = await session.execute(select(Infraction).where(Infraction.user_id == user_id))
             infractions = result.scalars().all()
 
-            if not infractions:
-                return await interaction.response.send_message(f"✅ {user.mention} has no infractions.", ephemeral=False)
+        if not infractions:
+            return await interaction.response.send_message("✅ This user has no infractions.")
 
-            embed = discord.Embed(
-                title=f"Infractions for {user}",
-                color=discord.Color.purple()
+        # Count summary
+        counts = Counter(i.infraction_type.lower() for i in infractions)
+        total = len(infractions)
+        summary = f"Total: {total} | " + \
+            " | ".join(f"{k.capitalize()}: {v}" for k, v in counts.items())
+
+        def formatter(entry: Infraction) -> Tuple[str, str]:
+            timestamp = entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            duration = f" | Duration: {entry.duration_seconds}s" if entry.duration_seconds else ""
+            name = f"Type: {entry.infraction_type.upper()}"
+            value = (
+                f"Reason: {entry.reason or 'No reason provided'}\n"
+                f"Date: {timestamp}{duration}\n"
+                f"Moderator ID: {entry.moderator_id}"
             )
-            for infraction in infractions:
-                timestamp = infraction.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                duration = f" | Duration: {infraction.duration_seconds} seconds" if infraction.duration_seconds else ""
-                embed.add_field(
-                    name=f"Type: {infraction.infraction_type.upper()}",
-                    value=f"Reason: {infraction.reason or 'No reason provided'}\nDate: {timestamp}{duration}",
-                    inline=False
-                )
+            return name, value
 
-            await interaction.response.send_message(embed=embed)
+        view = PaginatedEmbedView(
+            entries=infractions,
+            per_page=5,
+            title=f"Infractions for User ID: {user_id}",
+            formatter=formatter,
+            color=discord.Color.purple()
+        )
+
+        await interaction.response.send_message(content=summary, embed=view.get_embed(), view=view)
 
     # Clear Infractions for user
     @app_commands.command(name="clearinfractions", description="Clear all infractions for a user.")
@@ -587,7 +623,7 @@ class Moderation(commands.Cog):
             infractions = result.scalars().all()
 
             if not infractions:
-                await interaction.response.send_message(f"✅ {user.mention} has no infractions to clear.", ephemeral=True)
+                await interaction.response.send_message(f"✅ {user.mention} has no infractions to clear.", ephemeral=False)
                 return
 
             for infraction in infractions:
