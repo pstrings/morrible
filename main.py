@@ -33,4 +33,5 @@ if __name__ == "__main__":
         bot = Morrible()
         await bot.run(os.getenv("DISCORD_TOKEN"), log_level=logging.DEBUG)
 
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
