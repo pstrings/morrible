@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from database.infraction import init_db
+from database.database import init_db
 from keep_alive import keep_alive
 
 # Load environment variables
@@ -29,12 +29,15 @@ class Morrible(commands.Bot):
 
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
+        await self.load_extension("cogs.partnership")
         # Registers slash commands
         await self.tree.sync()
         logger.info("Cogs loaded and slash commands synced.")
 
 
 async def main():
+    """Main function"""
+
     logger.info("Initializing database...")
     await init_db()
     logger.info("Database initialized.")

@@ -28,6 +28,25 @@ class Infraction(Base):
     duration_seconds = Column(Integer, nullable=True)
 
 
+class TicketChannel(Base):
+    __tablename__ = "ticket_channels"
+
+    guild_id = Column(BigInteger, primary_key=True)
+    channel_id = Column(BigInteger, nullable=False)
+
+
+class PartnershipTicket(Base):
+    __tablename__ = "partnership_tickets"
+
+    id = Column(Integer, primary_key=True)
+    guild_id = Column(BigInteger, nullable=False)
+    user_id = Column(BigInteger, nullable=False)
+    channel_id = Column(BigInteger, nullable=False)
+    status = Column(String, default="open")  # "open" or "closed"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
+
 async def init_db():
     """Initialise Database"""
 

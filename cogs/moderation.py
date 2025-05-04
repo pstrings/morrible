@@ -2,16 +2,16 @@
 This cog will run the moderation commands like warn, mute, timeout, kick, ban
 """
 import datetime
+from collections import Counter
+from typing import Callable, Tuple
 
 import discord
 from discord.ext import commands
 from discord import app_commands
 from discord.ui import View, Button
 from sqlalchemy import select
-from collections import Counter
-from typing import Callable, Tuple
 
-from database.infraction import async_session, Infraction
+from database.database import async_session, Infraction
 
 ROLE_HIERARCHY = {
     "the good witch": 3,
