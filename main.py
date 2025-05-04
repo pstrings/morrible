@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import time
 
 import discord
 from discord.ext import commands
@@ -11,12 +12,13 @@ from keep_alive import keep_alive
 
 # Load environment variables
 load_dotenv()
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Configure Logging
-logging.basicConfig(level=logging.DEBUG)
+# Logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("morrible")
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+# Bot class
 
 
 class Morrible(commands.Bot):
@@ -29,26 +31,26 @@ class Morrible(commands.Bot):
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
         await self.load_extension("cogs.partnership")
-        # Registers slash commands
         await self.tree.sync()
         logger.info("Cogs loaded and slash commands synced.")
 
 
-async def main():
-    """Main function"""
-
-    logger.info("Initializing database...")
+async def start_bot():
     await init_db()
     logger.info("Database initialized.")
-
     bot = Morrible()
-    logger.info("Starting bot...")
     async with bot:
         await bot.start(DISCORD_TOKEN)
 
-if __name__ == "__main__":
 
-    # Start Flask Web Server
+def run_main():
+    # Start Flask web server first to satisfy Render
     keep_alive()
 
-    asyncio.run(main())
+    time.sleep(5)
+    # Start the bot
+    asyncio.run(start_bot())
+
+
+if __name__ == "__main__":
+    run_main()
