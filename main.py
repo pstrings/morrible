@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import threading
 
 import discord
 from discord.ext import commands
@@ -51,3 +52,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# Start the bot in a separate thread (Flask will take the main thread)
+bot_thread = threading.Thread(target=run_bot)
+bot_thread.start()
