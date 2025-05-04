@@ -1,7 +1,6 @@
 import os
 import logging
 import asyncio
-import threading
 
 import discord
 from discord.ext import commands
@@ -12,9 +11,6 @@ from keep_alive import keep_alive
 
 # Load environment variables
 load_dotenv()
-
-# Start Flask Web Server
-keep_alive()
 
 # Configure Logging
 logging.basicConfig(level=logging.DEBUG)
@@ -38,23 +34,21 @@ class Morrible(commands.Bot):
         logger.info("Cogs loaded and slash commands synced.")
 
 
-def run_bot():
-    async def main():
-        """Main function"""
+async def main():
+    """Main function"""
 
-        logger.info("Initializing database...")
-        await init_db()
-        logger.info("Database initialized.")
+    logger.info("Initializing database...")
+    await init_db()
+    logger.info("Database initialized.")
 
-        bot = Morrible()
-        logger.info("Starting bot...")
-        async with bot:
-            await bot.start(DISCORD_TOKEN)
+    bot = Morrible()
+    logger.info("Starting bot...")
+    async with bot:
+        await bot.start(DISCORD_TOKEN)
 
-    if __name__ == "__main__":
-        asyncio.run(main())
+if __name__ == "__main__":
 
+    # Start Flask Web Server
+    keep_alive()
 
-# Start the bot in a separate thread (Flask will take the main thread)
-bot_thread = threading.Thread(target=run_bot)
-bot_thread.start()
+    asyncio.run(main())
