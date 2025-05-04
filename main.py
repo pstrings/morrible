@@ -45,7 +45,7 @@ async def start_bot():
 
 def run_main():
     # Start Flask web server first to satisfy Render
-    # keep_alive()
+    keep_alive()
 
     time.sleep(5)
     # Start the bot
