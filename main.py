@@ -11,7 +11,6 @@ from keep_alive import keep_alive
 
 # Load environment variables
 load_dotenv()
-print("DISCORD_TOKEN:", os.getenv("DISCORD_TOKEN"))
 
 # Start Flask Web Server
 keep_alive()
@@ -19,6 +18,8 @@ keep_alive()
 # Configure Logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("morrible")
+
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 
 class Morrible(commands.Bot):
@@ -46,7 +47,7 @@ async def main():
     bot = Morrible()
     logger.info("Starting bot...")
     async with bot:
-        await bot.start(os.getenv("DISCORD_TOKEN"))
+        await bot.start(DISCORD_TOKEN)
 
 if __name__ == "__main__":
     asyncio.run(main())
