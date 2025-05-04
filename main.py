@@ -11,6 +11,7 @@ from keep_alive import keep_alive
 
 # Load environment variables
 load_dotenv()
+print("DISCORD_TOKEN:", os.getenv("DISCORD_TOKEN"))
 
 # Start Flask Web Server
 keep_alive()

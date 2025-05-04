@@ -2,7 +2,6 @@ from discord.ext import commands
 from discord import app_commands, Interaction
 import discord
 from sqlalchemy.future import select
-from sqlalchemy import update
 from database.database import TicketChannel, PartnershipTicket, async_session
 
 
