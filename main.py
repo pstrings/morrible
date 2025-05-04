@@ -38,20 +38,21 @@ class Morrible(commands.Bot):
         logger.info("Cogs loaded and slash commands synced.")
 
 
-async def main():
-    """Main function"""
+def run_bot():
+    async def main():
+        """Main function"""
 
-    logger.info("Initializing database...")
-    await init_db()
-    logger.info("Database initialized.")
+        logger.info("Initializing database...")
+        await init_db()
+        logger.info("Database initialized.")
 
-    bot = Morrible()
-    logger.info("Starting bot...")
-    async with bot:
-        await bot.start(DISCORD_TOKEN)
+        bot = Morrible()
+        logger.info("Starting bot...")
+        async with bot:
+            await bot.start(DISCORD_TOKEN)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    if __name__ == "__main__":
+        asyncio.run(main())
 
 
 # Start the bot in a separate thread (Flask will take the main thread)
