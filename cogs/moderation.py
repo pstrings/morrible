@@ -7,11 +7,11 @@ from typing import Callable, Tuple
 
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, Embed
 from discord.ui import View, Button
 from sqlalchemy import select
 
-from database.database import async_session, Infraction
+from database.database import async_session, Infraction, ModLogChannel
 
 ROLE_HIERARCHY = {
     "the good witch": 3,
@@ -114,8 +114,56 @@ async def save_infraction(user_id: int, moderator_id: int, infraction_type: str,
         await session.commit()
 
 
-# Generalized Paginated View
+async def send_mod_log(
+    bot,
+    guild: discord.Guild,
+    action: str,
+    moderator: discord.User,
+    target: discord.User = None,
+    reason: str = None,
+    duration: str = None,
+    extra: str = None
+):
+    async with async_session() as session:
+        log_channel_entry = await session.get(ModLogChannel, guild.id)
+        if not log_channel_entry:
+            return  # No mod log channel set
+
+        log_channel = guild.get_channel(log_channel_entry.channel_id)
+        if not log_channel:
+            return  # Channel no longer exists
+
+        embed = discord.Embed(
+            title=f"🛠️ Moderation Action: {action}",
+            color=discord.Color.orange()
+        )
+
+        if target:
+            embed.set_thumbnail(url=target.display_avatar.url)
+            embed.add_field(
+                name="Target", value=f"{target} (`{target.id}`)", inline=False)
+
+        embed.add_field(name="Moderator",
+                        value=f"{moderator} (`{moderator.id}`)", inline=False)
+
+        if duration:
+            embed.add_field(name="Duration", value=duration, inline=False)
+
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+
+        if extra:
+            embed.add_field(name="Details", value=extra, inline=False)
+
+        embed.set_footer(text=f"Action taken in {guild.name}")
+        embed.timestamp = discord.utils.utcnow()
+
+        await log_channel.send(embed=embed)
+
+
 class PaginatedEmbedView(View):
+    """Generalized Paginated View"""
+
     def __init__(
         self,
         entries: list,
@@ -204,12 +252,16 @@ class Moderation(commands.Cog):
         try:
             await member.send(f"{member.mention} has been warned for: {reason}")
             await interaction.response.send_message(f"{member.mention} has been warned via DM.", ephemeral=False)
+
             await save_infraction(
                 user_id=member.id,
                 moderator_id=interaction.user.id,
                 infraction_type="warn",
                 reason=reason
             )
+
+            await send_mod_log(self.bot, interaction.guild, "Warn", interaction.user, member, reason)
+
         except discord.Forbidden:
             await interaction.response.send_message(f"{member.mention} could not be warned via DM (they have DMs disabled)", ephemeral=False)
 
@@ -246,6 +298,9 @@ class Moderation(commands.Cog):
                 infraction_type="kick",
                 reason=reason
             )
+
+            await send_mod_log(self.bot, interaction.guild, "Kick", interaction.user, member, reason)
+
         except discord.Forbidden:
             await interaction.response.send_message("I do not have permission to kick this user.", ephemeral=True)
         except Exception as e:
@@ -293,6 +348,7 @@ class Moderation(commands.Cog):
                 infraction_type="ban",
                 reason=reason
             )
+            await send_mod_log(self.bot, interaction.guild, "Ban", interaction.user, member, reason)
         except discord.Forbidden:
             await interaction.followup.send("I do not have permission to ban this user.", ephemeral=True)
         except Exception as e:
@@ -325,7 +381,11 @@ class Moderation(commands.Cog):
 
         try:
             await interaction.guild.unban(user, reason=f"Unbanned by {interaction.user} for: {reason}")
+
             await interaction.response.send_message(f"{user.mention} has been unbanned. Reason: {reason}", ephemeral=False)
+
+            await send_mod_log(self.bot, interaction.guild, "Unban", interaction.user, user, reason)
+
         except discord.Forbidden:
             return await interaction.response.send_message("I don't have permission to unban that user.", ephemeral=False)
 
@@ -398,6 +458,8 @@ class Moderation(commands.Cog):
                     reason=reason,
                     duration_seconds=until
                 )
+                await send_mod_log(self.bot, interaction.guild, "Timeout", interaction.user, member, reason, duration=duration)
+
             except discord.Forbidden:
                 await interaction.followup.send("Could not DM the user about the timeout.")
         except discord.Forbidden:
@@ -431,6 +493,9 @@ class Moderation(commands.Cog):
                 return await interaction.followup.send(f"{member.mention} is not currently timed out.")
             await member.timeout(None, reason=reason)
             await interaction.followup.send(f"Removed timeout from {member.mention}. Reason: {reason}")
+
+            # Moderation log
+            await send_mod_log(self.bot, interaction.guild, "Untimeout", interaction.user, member, reason)
             try:
                 await member.send(f"Your timeout in {interaction.guild.name} has been removed. Reason: {reason}")
             except discord.Forbidden:
@@ -458,6 +523,8 @@ class Moderation(commands.Cog):
             # +1 to account for the command message itself
             deleted = await interaction.channel.purge(limit=amount + 1)
             await interaction.followup.send(f"Deleted {len(deleted) - 1} messages.")
+            await send_mod_log(self.bot, interaction.guild, action="Purge", moderator=interaction.user, extra=f"Deleted {len(deleted) - 1} messages in {interaction.channel.mention}")
+
         except discord.Forbidden:
             await interaction.followup.send("I do not have permission to delete messages in this channel.", ephemeral=True)
         except Exception as e:
@@ -485,6 +552,15 @@ class Moderation(commands.Cog):
         try:
             await target_channel.edit(slowmode_delay=delay_seconds)
             await interaction.response.send_message(f"✅ Slowmode set to `{duration}` seconds in {target_channel.mention}.")
+
+            # Moderation Logs
+            await send_mod_log(
+                self.bot,
+                interaction.guild,
+                action="Slowmode Set",
+                moderator=interaction.user,
+                extra=f"Set to `{duration}` in {target_channel.mention}"
+            )
         except discord.Forbidden:
             await interaction.response.send_message("❌ I don't have permission to edit this channel.", ephemeral=True)
         except Exception as e:
@@ -530,6 +606,9 @@ class Moderation(commands.Cog):
                 infraction_type="mute",
                 reason=reason
             )
+
+            # Moderation log
+            await send_mod_log(self.bot, interaction.guild, "Mute", interaction.user, member, reason)
         except discord.Forbidden:
             await interaction.response.send_message("Alas! I lack the authority to mute this illustrious being.")
         except Exception as e:
@@ -572,6 +651,8 @@ class Moderation(commands.Cog):
             await member.remove_roles(muted_role)
             await member.send(f"{member.mention} has been unmuted")
             await interaction.response.send_message(f"{member.mention} has been freed from their cursed silence. May they tread carefully henceforth.")
+            # Moderation log
+            await send_mod_log(self.bot, interaction.guild, "Unmute", interaction.user, member)
         except discord.Forbidden:
             await interaction.response.send_message("I cannot lift the silence from this soul. They are beyond my reach.", ephemeral=True)
         except Exception as e:
@@ -646,6 +727,31 @@ class Moderation(commands.Cog):
             await session.commit()
 
             await interaction.response.send_message(f"🗑️ Cleared all infractions for {user.mention}.", ephemeral=False)
+
+            # Moderation log
+            await send_mod_log(self.bot, interaction.guild, "Clear Infraction", interaction.user, user)
+
+    # Set mod log channel
+
+    @app_commands.command(name="setmodlog", description="Set the moderation logs channel.")
+    @app_commands.describe(channel="Channel for moderation logs")
+    @app_commands.guild_only()
+    @app_commands.guild_install()
+    @require_role(3)
+    async def set_mod_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        """Set channel for moderation logs"""
+
+        guild_id = interaction.guild.id
+
+        async with async_session as session:
+            existing = await session.get(ModLogChannel, guild_id)
+            if existing:
+                existing.channel_id = channel.id
+            else:
+                session.add(ModLogChannel(guild_id, channel_id=channel.id))
+            await session.commit()
+
+        await interaction.response.send_message(f"✅ Mod log channel set to {channel.mention}")
 
 
 async def setup(bot: commands.Bot):

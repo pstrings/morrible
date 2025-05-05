@@ -47,6 +47,13 @@ class PartnershipTicket(Base):
     closed_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class ModLogChannel(Base):
+    __tablename__ = "mod_log_channels"
+
+    guild_id = Column(BigInteger, primary_key=True)
+    channel_id = Column(BigInteger, nullable=False)
+
+
 async def init_db():
     """Initialise Database"""
 
