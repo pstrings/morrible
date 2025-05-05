@@ -135,7 +135,7 @@ async def send_mod_log(
 
         embed = discord.Embed(
             title=f"🛠️ Moderation Action: {action}",
-            color=discord.Color.orange()
+            color=discord.Color.purple()
         )
 
         if target:
