@@ -182,6 +182,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="warn", description="Warn a member with a reason via DM")
     @app_commands.describe(member="The user to warn", reason="Why are they being warned?")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(1)
     async def warn(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         """Warns a member in the server"""
@@ -217,6 +218,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="kick", description="Kick a member with a reason via DM")
     @app_commands.describe(member="The user to kick", reason="Why are they being kicked?")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(2)
     async def kick(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         """Kicks a member from the server"""
@@ -254,6 +256,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="ban", description="Ban a member with a reason via DM")
     @app_commands.describe(member="The user to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(2)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, *, reason: str, delete_message_days: int = 0):
         """Command to ban members from the server."""
@@ -300,6 +303,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="unban", description="Unban a member with a reason via DM")
     @app_commands.describe(user="The user to unban", reason="Reason for the unban")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(3)
     async def unban(self, interaction: discord.Interaction, user: discord.User, *, reason: str):
         """This method will unban a user."""
@@ -329,6 +333,7 @@ class Moderation(commands.Cog):
 
     @app_commands.command(name="listban", description="List all the banned users")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(1)
     async def list_ban(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -358,6 +363,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="timeout", description="Timeout members for a specific duration")
     @app_commands.describe(member="The member to timeout", duration="The timeout duration (Ex. 1h, 30m, 5m)", reason="Reason for the timeout")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(1)
     async def timeout(self, interaction: discord.Interaction, member: discord.Member, duration: str, *, reason: str):
         """Timeout a member in the server."""
@@ -404,6 +410,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="untimeout", description="Remove the timeout from a member")
     @app_commands.describe(member="The member to remove the timeout from", reason="Reason for removing the timeout")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(1)
     async def untimeout(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         """Removes the timeout from a member."""
@@ -438,6 +445,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="purge", description="Delete a specific number of recent messages")
     @app_commands.describe(amount="The number of messages to delete (1-100)")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(3)
     async def purge(self, interaction: discord.Interaction, amount: int):
         """Deletes a specified number of recent messages from the channel."""
@@ -460,6 +468,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="slowmode", description="Set slowmode in a channel")
     @app_commands.describe(duration="Time (e.g. 5s, 2m, 1h)", channel="The channel to set slowmode in")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(3)
     async def slowmode(self, interaction: discord.Interaction, duration: str, channel: discord.TextChannel = None):
         """Sets slowmode for a channel. If channel is not given, current channel is used."""
@@ -486,6 +495,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="mute", description="Bestow silence upon a misbehaving soul.")
     @app_commands.describe(member="The miscreant to be muted", reason="Reason for the mute")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(1)
     async def mute(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         muted_role = await get_or_create_muted_role(interaction.guild)
@@ -545,6 +555,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="unmute", description="Restore the voice of a once-muted soul.")
     @app_commands.describe(member="The once-muted to be liberated")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(1)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member):
         muted_role = await get_or_create_muted_role(interaction.guild)
@@ -569,6 +580,8 @@ class Moderation(commands.Cog):
     # List User Infractions:
     @app_commands.command(name="infractions", description="Show all infractions for a user by ID.")
     @app_commands.describe(user_id="The user ID to check infractions for.")
+    @app_commands.guild_install()
+    @require_role(1)
     async def infractions(self, interaction: discord.Interaction, user_id: str):
         """Shows all infractions for any user ID (even if not in server)"""
         try:
@@ -614,6 +627,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="clearinfractions", description="Clear all infractions for a user.")
     @app_commands.describe(user="The user to clear infractions for.")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     @require_role(3)
     async def clearinfractions(self, interaction: discord.Interaction, user: discord.Member):
         """To clear all infractions by a user."""

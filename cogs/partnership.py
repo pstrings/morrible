@@ -13,6 +13,7 @@ class PartnershipTickets(commands.Cog):
     @app_commands.command(name="setticketchannel", description="Set the category where tickets will be created.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
+    @app_commands.guild_install()
     async def set_text_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Sets a channel for tickets"""
 
@@ -97,6 +98,7 @@ class PartnershipTickets(commands.Cog):
     @app_commands.command(name="closeticket", description="Close the current ticket.")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.guild_only()
+    @app_commands.guild_install()
     async def close_ticket(self, interaction: Interaction):
         channel = interaction.channel
         guild = interaction.guild
