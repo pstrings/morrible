@@ -21,7 +21,7 @@ logger = logging.getLogger("morrible")
 # Bot class
 
 
-class Morrible(commands.Bot):
+class Morrible(commands.AutoShardedBot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -31,8 +31,26 @@ class Morrible(commands.Bot):
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
         await self.load_extension("cogs.partnership")
-        await self.tree.sync()
+        await self.sync_commands_with_backoff()
         logger.info("Cogs loaded and slash commands synced.")
+
+    async def sync_commands_with_backoff(self, retries=5):
+        """Syncs slash commands with retry and exponential backoff."""
+
+        delay = 2
+        for attempt in range(retries):
+            try:
+                await self.tree.sync()
+                logger.info("Slash commands synced successfully.")
+                return
+            except discord.HTTPException as e:
+                logger.warning(f"Slash sync failed (attempt {attempt+1}): {e}")
+                if attempt < retries - 1:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    logger.error(
+                        "Failed to sync commands after several attempts.")
 
 
 async def start_bot():
@@ -47,7 +65,9 @@ def run_main():
     # Start Flask web server first to satisfy Render
     keep_alive()
 
-    time.sleep(5)
+    # Ensure web server is up before bot connects
+    time.sleep(20)
+
     # Start the bot
     asyncio.run(start_bot())
 
