@@ -521,8 +521,8 @@ class Moderation(commands.Cog):
 
         try:
             deleted = await interaction.channel.purge(limit=amount)
-            await interaction.followup.send(f"Deleted {len(deleted) - 1} messages.")
-            await send_mod_log(self.bot, interaction.guild, action="Purge", moderator=interaction.user, extra=f"Deleted {len(deleted) - 1} messages in {interaction.channel.mention}")
+            await interaction.followup.send(f"Deleted {len(deleted)} messages.")
+            await send_mod_log(self.bot, interaction.guild, action="Purge", moderator=interaction.user, extra=f"Deleted {len(deleted)} messages in {interaction.channel.mention}")
 
         except discord.Forbidden:
             await interaction.followup.send("I do not have permission to delete messages in this channel.", ephemeral=True)
