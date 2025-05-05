@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime
 from sqlalchemy.sql import func
 
-DATABASE_URL = "sqlite+aiosqlite:///./infractions.db"
+DATABASE_URL = "sqlite+aiosqlite:///./morrible.db"
 
 Base = declarative_base()
 engine = create_async_engine(DATABASE_URL, echo=False)
