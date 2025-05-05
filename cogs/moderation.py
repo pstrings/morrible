@@ -520,8 +520,7 @@ class Moderation(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # +1 to account for the command message itself
-            deleted = await interaction.channel.purge(limit=amount + 1)
+            deleted = await interaction.channel.purge(limit=amount)
             await interaction.followup.send(f"Deleted {len(deleted) - 1} messages.")
             await send_mod_log(self.bot, interaction.guild, action="Purge", moderator=interaction.user, extra=f"Deleted {len(deleted) - 1} messages in {interaction.channel.mention}")
 
