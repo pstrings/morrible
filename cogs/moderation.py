@@ -662,6 +662,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="infractions", description="Show all infractions for a user by ID.")
     @app_commands.describe(user_id="The user ID to check infractions for.")
     @app_commands.guild_install()
+    @app_commands.guild_only()
     @require_role(1)
     async def infractions(self, interaction: discord.Interaction, user_id: str):
         """Shows all infractions for any user ID (even if not in server)"""
