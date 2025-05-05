@@ -1,3 +1,5 @@
+"""Main Bot file"""
+
 import os
 import logging
 import asyncio
@@ -20,6 +22,8 @@ logger = logging.getLogger("morrible")
 
 
 class Morrible(commands.AutoShardedBot):
+    """Main class"""
+
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -53,6 +57,7 @@ class Morrible(commands.AutoShardedBot):
 
 
 async def start_bot():
+    """Start the bot"""
     await init_db()
     logger.info("Database initialized.")
     bot = Morrible()
@@ -61,7 +66,7 @@ async def start_bot():
 
 
 def run_main():
-    """Start the bot"""
+    """Run the bot"""
 
     asyncio.run(start_bot())
 
