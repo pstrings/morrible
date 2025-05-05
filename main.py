@@ -18,8 +18,8 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("morrible")
 
-# Bot class
 
+# Bot class
 
 class Morrible(commands.AutoShardedBot):
     """Main class"""
@@ -33,8 +33,23 @@ class Morrible(commands.AutoShardedBot):
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
         await self.load_extension("cogs.partnership")
+        logger.info("Cogs loaded")
+
+    async def on_ready(self):
+        print(f'Logged in as {self.user}')
         await self.sync_commands_with_backoff()
-        logger.info("Cogs loaded and slash commands synced.")
+        logger.info("Cogs synced globally.")
+
+    async def on_guild_join(self, guild: discord.Guild):
+        """Sync slash commands when the bot joins a new guild."""
+
+        try:
+            synced = await self.tree.sync(guild=guild)
+            logger.info("Synced %d slash commands for guild %s (%d) on join.", len(
+                synced), guild.name, guild.id)
+        except discord.HTTPException as e:
+            logger.error(
+                "Failed to sync guild commands for %s (%d) on join: %s", guild.name, guild.id, e)
 
     async def sync_commands_with_backoff(self, retries=5):
         """Syncs slash commands with retry and exponential backoff."""

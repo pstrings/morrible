@@ -31,6 +31,7 @@ class PartnershipTickets(commands.Cog):
 
     @app_commands.command(name="openticket", description="Open a partnership ticket.")
     @app_commands.guild_only()
+    @app_commands.guild_install()
     async def open_ticket(self, interaction: discord.Interaction):
         """To open tickets for partnership"""
 
@@ -95,6 +96,7 @@ class PartnershipTickets(commands.Cog):
 
     @app_commands.command(name="closeticket", description="Close the current ticket.")
     @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.guild_only()
     async def close_ticket(self, interaction: Interaction):
         channel = interaction.channel
         guild = interaction.guild
