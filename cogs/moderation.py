@@ -748,7 +748,9 @@ class Moderation(commands.Cog):
             if existing:
                 existing.channel_id = channel.id
             else:
-                session.add(ModLogChannel(guild_id, channel_id=channel.id))
+                session.add(ModLogChannel(
+                    guild_id=guild_id, channel_id=channel.id))
+
             await session.commit()
 
         await interaction.response.send_message(f"✅ Mod log channel set to {channel.mention}")
