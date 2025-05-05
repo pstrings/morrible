@@ -1,14 +1,12 @@
 import os
 import logging
 import asyncio
-import time
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
 from database.database import init_db
-from keep_alive import keep_alive
 
 # Load environment variables
 load_dotenv()
@@ -44,7 +42,8 @@ class Morrible(commands.AutoShardedBot):
                 logger.info("Slash commands synced successfully.")
                 return
             except discord.HTTPException as e:
-                logger.warning(f"Slash sync failed (attempt {attempt+1}): {e}")
+                logger.warning(
+                    "Slash sync failed (attempt %d): %s", attempt + 1, e)
                 if attempt < retries - 1:
                     await asyncio.sleep(delay)
                     delay *= 2
@@ -62,13 +61,8 @@ async def start_bot():
 
 
 def run_main():
-    # Start Flask web server first to satisfy Render
-    keep_alive()
+    """Start the bot"""
 
-    # Ensure web server is up before bot connects
-    time.sleep(20)
-
-    # Start the bot
     asyncio.run(start_bot())
 
 
