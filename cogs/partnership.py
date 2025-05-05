@@ -73,7 +73,7 @@ class PartnershipTickets(commands.Cog):
                     overwrites[role] = discord.PermissionOverwrite(
                         read_messages=True, send_messages=True)
 
-            ticket_name = f"ticket-{user.name}-{user.discriminator}"
+            ticket_name = f"ticket-{user.name}"
             channel = await guild.create_text_channel(
                 name=ticket_name,
                 category=base_channel.category if isinstance(
