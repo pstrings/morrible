@@ -743,7 +743,7 @@ class Moderation(commands.Cog):
 
         guild_id = interaction.guild.id
 
-        async with async_session as session:
+        async with async_session() as session:
             existing = await session.get(ModLogChannel, guild_id)
             if existing:
                 existing.channel_id = channel.id
