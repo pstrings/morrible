@@ -2,7 +2,7 @@ from discord.ext import commands
 from discord import app_commands, Interaction
 import discord
 from sqlalchemy.future import select
-from database.database import TicketChannel, PartnershipTicket, async_session
+from database.database import TicketChannel, PartnershipTicket, PartnershipLogChannel, async_session
 
 
 class PartnershipTickets(commands.Cog):
@@ -17,12 +17,12 @@ class PartnershipTickets(commands.Cog):
     async def set_ticket_logs_channel(self, interaction: discord.Interaction, log_channel: discord.TextChannel):
         """Sets the channel for ticket close logs."""
         async with async_session() as session:
-            existing = await session.get(TicketChannel, interaction.guild.id)
+            existing = await session.get(PartnershipLogChannel, interaction.guild.id)
             if existing:
-                existing.log_channel_id = log_channel.id
+                existing.channel_id = log_channel.id
             else:
-                session.add(TicketChannel(
-                    guild_id=interaction.guild.id, channel_id=None, log_channel_id=log_channel.id))
+                session.add(PartnershipLogChannel(
+                    guild_id=interaction.guild.id, channel_id=log_channel.id))
             await session.commit()
         await interaction.response.send_message(f"✅ Ticket logs channel set to {log_channel.mention}")
 
@@ -113,7 +113,7 @@ class PartnershipTickets(commands.Cog):
     # Close Ticket
 
     @app_commands.command(name="closeticket", description="Close the current ticket.")
-    @app_commands.describe(server_name="Name of the server", server_link="Invite link to the server", description="Optional server description", accepted="Whether the partnership was accepted (true/false)")
+    @app_commands.describe(server_name="Name of the server", server_link="Invite link to the server", accepted="Whether the partnership was accepted (true/false)", description="Optional server description")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.guild_only()
     @app_commands.guild_install()
@@ -150,28 +150,27 @@ class PartnershipTickets(commands.Cog):
                 embed.add_field(
                     name="Opened by", value=user.mention if user else f"<@{ticket.user_id}>", inline=True)
                 embed.add_field(name="Closed by",
-                                value=closer.mention, inline=True)
+                                    value=closer.mention, inline=True)
                 embed.add_field(name="Server Name",
-                                value=server_name, inline=False)
+                                    value=server_name, inline=False)
                 embed.add_field(name="Server Link",
-                                value=server_link, inline=False)
+                                    value=server_link, inline=False)
 
                 if description:
                     embed.add_field(name="Server Description",
-                                    value=description, inline=False)
+                                        value=description, inline=False)
 
                 embed.set_footer(text=f"Action taken in {guild.name}")
-                embed.set_footer(
-                    text=f"Closed on {discord.utils.format_dt(discord.utils.utcnow(), style='F')}")
+                embed.timestamp = discord.utils.utcnow()
 
                 # --- Sending the log to the set log channel ---
-                config = await session.get(TicketChannel, guild.id)
-                if config and config.log_channel_id:
-                    log_channel = guild.get_channel(config.log_channel_id)
+                log_config = await session.get(PartnershipLogChannel, guild.id)
+                if log_config and log_config.channel_id:
+                    log_channel = guild.get_channel(log_config.channel_id)
                     if log_channel and isinstance(log_channel, discord.TextChannel):
                         await log_channel.send(embed=embed)
                 else:
-                    await interaction.response.send_message("⚠️ Ticket closed, but no log channel has been set up.", ephemeral=True)
+                    await interaction.response.send_message("⚠️ Ticket closed, but no partnership log channel has been set up.", ephemeral=True)
                     await channel.delete()
                     return
 
