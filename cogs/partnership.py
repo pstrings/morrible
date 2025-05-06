@@ -96,10 +96,11 @@ class PartnershipTickets(commands.Cog):
     # Close Ticket
 
     @app_commands.command(name="closeticket", description="Close the current ticket.")
+    @app_commands.describe(server_name="Name of the server", server_link="Invite link to the server", description="Optional server description", accepted="Whether the partnership was accepted (true/false)")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.guild_only()
     @app_commands.guild_install()
-    async def close_ticket(self, interaction: Interaction):
+    async def close_ticket(self, interaction: Interaction, server_name: str, server_link: str, accepted: bool, description: str = None):
         channel = interaction.channel
         guild = interaction.guild
 
@@ -119,6 +120,41 @@ class PartnershipTickets(commands.Cog):
                 ticket.status = "closed"
                 ticket.closed_at = discord.utils.utcnow()
                 await session.commit()
+
+                user = guild.get_member(ticket.user_id)
+                closer = interaction.user
+
+                embed = discord.Embed(
+                    title="🪪 Partnership Ticket Close"
+                    description=f"**Status:** {'Accepted ✅' if accepted else 'Rejected ❌'}"
+                    color=discord.Color.purple()
+                )
+
+                embed.add_field(
+                    name="Opened by", value=user.mention if user else f"<@{ticket.user_id}>", inline=True)
+                embed.add_field(name="Closed by",
+                                value=closer.mention, inline=True)
+                embed.add_field(name="Server Name",
+                                value=server_name, inline=False)
+                embed.add_field(name="Server Link",
+                                value=server_link, inline=False)
+
+                if description:
+                    embed.add_field(name="Server Description",
+                                    value=description, inline=False)
+
+                embed.set_footer(text="Partnership Log")
+
+                # Optional image preview attempt
+                if "discord.gg" in server_link or "discord.com/invite" in server_link:
+                    # Placeholder image
+                    embed.set_thumbnail(
+                        url="https://cdn.discordapp.com/embed/avatars/0.png")
+
+                log_channel_id = 1234567890  # REPLACE with actual modlog channel ID
+                log_channel = guild.get_channel(log_channel_id)
+                if log_channel and isinstance(log_channel, discord.TextChannel):
+                    await log_channel.send(embed=embed)
 
         await interaction.response.send_message("✅ Closing ticket...", ephemeral=True)
         await channel.delete()
