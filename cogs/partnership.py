@@ -9,6 +9,23 @@ class PartnershipTickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # Set ticket logs channle
+    @app_commands.command(name="setticketlogs", description="Set the channel where ticket close logs will be sent.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.guild_only()
+    @app_commands.guild_install()
+    async def set_ticket_logs_channel(self, interaction: discord.Interaction, log_channel: discord.TextChannel):
+        """Sets the channel for ticket close logs."""
+        async with async_session() as session:
+            existing = await session.get(TicketChannel, interaction.guild.id)
+            if existing:
+                existing.log_channel_id = log_channel.id
+            else:
+                session.add(TicketChannel(
+                    guild_id=interaction.guild.id, channel_id=None, log_channel_id=log_channel.id))
+            await session.commit()
+        await interaction.response.send_message(f"✅ Ticket logs channel set to {log_channel.mention}")
+
     # Set ticket channel
     @app_commands.command(name="setticketchannel", description="Set the category where tickets will be created.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -147,16 +164,16 @@ class PartnershipTickets(commands.Cog):
                 embed.set_footer(
                     text=f"Closed on {discord.utils.format_dt(discord.utils.utcnow(), style='F')}")
 
-                # Optional image preview attempt
-                if "discord.gg" in server_link or "discord.com/invite" in server_link:
-                    # Placeholder image
-                    embed.set_thumbnail(
-                        url="https://cdn.discordapp.com/embed/avatars/0.png")
-
-                log_channel_id = 1234567890  # REPLACE with actual modlog channel ID
-                log_channel = guild.get_channel(log_channel_id)
-                if log_channel and isinstance(log_channel, discord.TextChannel):
-                    await log_channel.send(embed=embed)
+                # --- Sending the log to the set log channel ---
+                config = await session.get(TicketChannel, guild.id)
+                if config and config.log_channel_id:
+                    log_channel = guild.get_channel(config.log_channel_id)
+                    if log_channel and isinstance(log_channel, discord.TextChannel):
+                        await log_channel.send(embed=embed)
+                else:
+                    await interaction.response.send_message("⚠️ Ticket closed, but no log channel has been set up.", ephemeral=True)
+                    await channel.delete()
+                    return
 
         await interaction.response.send_message("✅ Closing ticket...", ephemeral=True)
         await channel.delete()
