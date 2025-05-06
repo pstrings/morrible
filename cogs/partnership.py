@@ -125,8 +125,8 @@ class PartnershipTickets(commands.Cog):
                 closer = interaction.user
 
                 embed = discord.Embed(
-                    title="🪪 Partnership Ticket Close"
-                    description=f"**Status:** {'Accepted ✅' if accepted else 'Rejected ❌'}"
+                    title="🪪 Partnership Ticket Close",
+                    description=f"**Status:** {'Accepted ✅' if accepted else 'Rejected ❌'}",
                     color=discord.Color.purple()
                 )
 
@@ -143,7 +143,9 @@ class PartnershipTickets(commands.Cog):
                     embed.add_field(name="Server Description",
                                     value=description, inline=False)
 
-                embed.set_footer(text="Partnership Log")
+                embed.set_footer(text=f"Action taken in {guild.name}")
+                embed.set_footer(
+                    text=f"Closed on {discord.utils.format_dt(discord.utils.utcnow(), style='F')}")
 
                 # Optional image preview attempt
                 if "discord.gg" in server_link or "discord.com/invite" in server_link:
