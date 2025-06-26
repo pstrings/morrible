@@ -3,8 +3,6 @@ from discord.ext import commands
 from discord import app_commands
 
 import json
-import os
-
 from typing import Dict
 from pathlib import Path
 
@@ -12,11 +10,10 @@ DATA_FILE = Path("database/reaction_roles.json")
 
 
 def load_reaction_roles() -> Dict[int, Dict[str, int]]:
-    """Load mappings from JSON file."""
-    if not os.path.exists(DATA_FILE):
+    if not DATA_FILE.exists():
         return {}
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
+        with DATA_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
             return {int(k): {emoji: int(rid) for emoji, rid in v.items()} for k, v in data.items()}
     except (json.JSONDecodeError, ValueError):
@@ -25,8 +22,8 @@ def load_reaction_roles() -> Dict[int, Dict[str, int]]:
 
 
 def save_reaction_roles(data: Dict[int, Dict[str, int]]):
-    """Save mappings to JSON file."""
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DATA_FILE.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
 
@@ -36,56 +33,58 @@ class ReactionRoles(commands.Cog):
         self.reaction_role_messages: Dict[int,
                                           Dict[str, int]] = load_reaction_roles()
 
-    @app_commands.command(name="setreactionroles", description="Link reactions on a message to role assignments.")
+    @app_commands.command(name="setreactionroles", description="Set up emoji reactions to assign roles on a message.")
     @app_commands.describe(
-        message_id="The ID of the message you want to add reactions to",
-        mapping="Comma-separated emoji:role_id pairs (e.g. 😀:1234,🔥:5678)"
+        message_id="The message to attach reaction roles to",
+        emoji1="First emoji (e.g. 😀)",
+        role1="Role given when user reacts with emoji1",
+        emoji2="Second emoji (optional)",
+        role2="Role given when user reacts with emoji2 (optional)"
     )
     @app_commands.guild_only()
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.guild_install()
+    @app_commands.checks.has_permissions(manage_roles=True)
     async def setreactionroles(
         self,
         interaction: discord.Interaction,
         message_id: str,
-        mapping: str
+        emoji1: str,
+        role1: discord.Role,
+        emoji2: str = None,
+        role2: discord.Role = None
     ):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            message_id = int(message_id)
+            msg_id = int(message_id)
         except ValueError:
-            return await interaction.followup.send("Invalid message ID.", ephemeral=True)
-
-        emoji_role_map = {}
-        for pair in mapping.split(","):
-            if ":" not in pair:
-                continue
-            emoji, role_id = pair.strip().split(":")
-            try:
-                emoji = emoji.strip()
-                role_id = int(role_id.strip())
-                emoji_role_map[emoji] = role_id
-            except ValueError:
-                return await interaction.followup.send(f"Invalid role ID in pair: {pair}", ephemeral=True)
+            return await interaction.followup.send("❌ Invalid message ID.", ephemeral=True)
 
         try:
-            message = await interaction.channel.fetch_message(message_id)
+            message = await interaction.channel.fetch_message(msg_id)
         except discord.NotFound:
-            return await interaction.followup.send("Message not found in this channel.", ephemeral=True)
+            return await interaction.followup.send("❌ Message not found in this channel.", ephemeral=True)
         except discord.Forbidden:
-            return await interaction.followup.send("Missing permissions to fetch that message.", ephemeral=True)
+            return await interaction.followup.send("❌ Missing permission to fetch that message.", ephemeral=True)
 
-        for emoji in emoji_role_map:
+        emoji_role_map = {}
+        if emoji1 and role1:
+            emoji_role_map[emoji1] = role1.id
+        if emoji2 and role2:
+            emoji_role_map[emoji2] = role2.id
+
+        for emoji in emoji_role_map.keys():
             try:
                 await message.add_reaction(emoji)
             except discord.HTTPException:
-                await interaction.followup.send(f"⚠️ Could not react with {emoji} (invalid or no permission).", ephemeral=True)
+                await interaction.followup.send(f"⚠️ Could not react with {emoji} (invalid or permission issue).", ephemeral=True)
 
-        self.reaction_role_messages[message_id] = emoji_role_map
+        self.reaction_role_messages[msg_id] = emoji_role_map
         save_reaction_roles(self.reaction_role_messages)
 
-        await interaction.followup.send(f"✅ Reaction roles saved and reactions added for message `{message_id}`.", ephemeral=True)
+        await interaction.followup.send(
+            f"✅ Reaction roles set up for message `{msg_id}`.",
+            ephemeral=True
+        )
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
