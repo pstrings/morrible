@@ -39,7 +39,8 @@ class ReactionRoles(commands.Cog):
         pairs="Emoji mention and role mention pairs (e.g. 😀 @Role, 🔥 @VIP)"
     )
     @app_commands.guild_only()
-    @app_commands.checks.has_permissions(manage_roles=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.guild_install()
     async def setreactionroles(self, interaction: discord.Interaction, message_id: str, pairs: str):
         await interaction.response.defer(ephemeral=True)
 
