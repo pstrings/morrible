@@ -42,7 +42,8 @@ class ReactionRoles(commands.Cog):
         mapping="Comma-separated emoji:role_id pairs (e.g. 😀:1234,🔥:5678)"
     )
     @app_commands.guild_only()
-    @app_commands.checks.has_permissions(manage_roles=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.guild_install()
     async def setreactionroles(
         self,
         interaction: discord.Interaction,
