@@ -2,7 +2,7 @@ from discord.ext import commands
 from discord import app_commands, Interaction
 import discord
 from sqlalchemy.future import select
-from database.database import TicketChannel, PartnershipTicket, PartnershipLogChannel, ArchiveCategory, async_session
+from database.database import TicketChannel, PartnershipTicket, PartnershipLogChannel, ArchiveChannel, async_session
 
 
 class PartnershipTickets(commands.Cog):
@@ -40,20 +40,20 @@ class PartnershipTickets(commands.Cog):
 
         await interaction.response.send_message(f"✅ Ticket channel set to {channel.mention}")
 
-    @app_commands.command(name="setarchivecategory", description="Set the category where archived tickets are stored.")
+    @app_commands.command(name="setarchivechannel", description="Set the text channel where archived ticket threads will be moved.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
     @app_commands.guild_install()
-    async def set_archive_category(self, interaction: discord.Interaction, category: discord.CategoryChannel):
+    async def set_archive_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         async with async_session() as session:
-            existing = await session.get(ArchiveCategory, interaction.guild.id)
+            existing = await session.get(ArchiveChannel, interaction.guild.id)
             if existing:
-                existing.category_id = category.id
+                existing.channel_id = channel.id
             else:
-                session.add(ArchiveCategory(
-                    guild_id=interaction.guild.id, category_id=category.id))
+                session.add(ArchiveChannel(
+                    guild_id=interaction.guild.id, channel_id=channel.id))
             await session.commit()
-        await interaction.response.send_message(f"📦 Archive category set to {category.name}")
+        await interaction.response.send_message(f"📦 Archive channel set to {channel.mention}")
 
     @app_commands.command(name="openticket", description="Open a partnership ticket.")
     @app_commands.guild_only()
@@ -83,36 +83,18 @@ class PartnershipTickets(commands.Cog):
             if not base_channel:
                 return await interaction.response.send_message("⚠️ Ticket base channel/category not found.", ephemeral=True)
 
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-                guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            }
-
-            for role in guild.roles:
-                if role.permissions.kick_members or role.permissions.administrator:
-                    overwrites[role] = discord.PermissionOverwrite(
-                        read_messages=True, send_messages=True)
-
-            ticket_name = f"ticket-{user.name}"
-            channel = await guild.create_text_channel(
-                name=ticket_name,
-                category=base_channel.category if isinstance(
-                    base_channel, discord.TextChannel) else None,
-                overwrites=overwrites,
-                topic=f"Partnership ticket for {user.display_name}"
-            )
+            thread = await base_channel.create_thread(name=f"ticket-{user.name}", type=discord.ChannelType.private_thread, invitable=False)
 
             new_ticket = PartnershipTicket(
                 guild_id=guild.id,
                 user_id=user.id,
-                channel_id=channel.id
+                channel_id=thread.id
             )
             session.add(new_ticket)
             await session.commit()
 
-            await channel.send(f"🎟️ {user.mention}, thank you for your interest in partnering. A staff member will respond shortly.")
-            await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=False)
+            await thread.send(f"🎟️ {user.mention}, thank you for your interest in partnering. A staff member will respond shortly.")
+            await interaction.response.send_message(f"✅ Your ticket has been created: {thread.mention}", ephemeral=False)
 
     @app_commands.command(name="closeticket", description="Close the current ticket.")
     @app_commands.describe(server_name="Name of the server", server_link="Invite link to the server", accepted="Whether the partnership was accepted (true/false)", description="Optional server description")
@@ -123,8 +105,8 @@ class PartnershipTickets(commands.Cog):
         channel = interaction.channel
         guild = interaction.guild
 
-        if not channel.name.startswith("ticket-"):
-            return await interaction.response.send_message("❌ This is not a ticket channel.", ephemeral=True)
+        if not isinstance(channel, discord.Thread) or not channel.name.startswith("ticket-"):
+            return await interaction.response.send_message("❌ This is not a ticket thread.", ephemeral=True)
 
         async with async_session() as session:
             result = await session.execute(
@@ -171,15 +153,16 @@ class PartnershipTickets(commands.Cog):
                     if log_channel and isinstance(log_channel, discord.TextChannel):
                         await log_channel.send(embed=embed)
 
-            archive_config = await session.get(ArchiveCategory, guild.id)
+                archive_config = await session.get(ArchiveChannel, guild.id)
+                if archive_config:
+                    archive_channel = guild.get_channel(
+                        archive_config.channel_id)
+                    if archive_channel and isinstance(archive_channel, discord.TextChannel):
+                        await channel.edit(name=f"archived-{channel.name}", reason="Ticket archived")
+                        await channel.send(f"📦 Ticket archived to {archive_channel.mention}.")
+                        await archive_channel.send(f"🗂️ Archived ticket: {channel.jump_url}")
 
         await interaction.response.send_message("✅ Ticket closed and archived.", ephemeral=True)
-        if archive_config:
-            archive_category = guild.get_channel(archive_config.category_id)
-            if archive_category and isinstance(archive_category, discord.CategoryChannel):
-                await channel.edit(category=archive_category, reason="Ticket archived")
-                return
-        await channel.edit(name=f"archived-{channel.name}", reason="Ticket archived")
 
     @app_commands.command(name="deleteticket", description="Permanently delete a ticket thread.")
     @app_commands.checks.has_permissions(manage_channels=True)
@@ -187,8 +170,8 @@ class PartnershipTickets(commands.Cog):
     @app_commands.guild_install()
     async def delete_ticket(self, interaction: Interaction):
         channel = interaction.channel
-        if not channel.name.startswith("ticket-") and not channel.name.startswith("archived-ticket"):
-            return await interaction.response.send_message("❌ This is not a ticket channel.", ephemeral=True)
+        if not isinstance(channel, discord.Thread) or not channel.name.startswith("ticket-") and not channel.name.startswith("archived-ticket"):
+            return await interaction.response.send_message("❌ This is not a ticket thread.", ephemeral=True)
 
         await interaction.response.send_message("🗑️ Deleting this ticket...", ephemeral=True)
         await channel.delete()

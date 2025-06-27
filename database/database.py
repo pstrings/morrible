@@ -52,17 +52,19 @@ class ModLogChannel(Base):
 
     guild_id = Column(BigInteger, primary_key=True)
     channel_id = Column(BigInteger, nullable=False)
-    
+
+
 class PartnershipLogChannel(Base):
     __tablename__ = "partner_log_channels"
 
     guild_id = Column(BigInteger, primary_key=True)
     channel_id = Column(BigInteger, nullable=False)
 
-class ArchiveCategory(Base):
-    __tablename__ = "archive_category"
+
+class ArchiveChannel(Base):
+    __tablename__ = "archive_channel"
     guild_id = Column(BigInteger, primary_key=True)
-    category_id = Column(BigInteger)
+    channel_id = Column(BigInteger)
 
 
 async def init_db():
