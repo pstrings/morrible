@@ -59,6 +59,11 @@ class PartnershipLogChannel(Base):
     guild_id = Column(BigInteger, primary_key=True)
     channel_id = Column(BigInteger, nullable=False)
 
+class ArchiveCategory(Base):
+    __tablename__ = "archive_category"
+    guild_id = Column(BigInteger, primary_key=True)
+    category_id = Column(BigInteger)
+
 
 async def init_db():
     """Initialise Database"""
