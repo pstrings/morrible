@@ -43,6 +43,7 @@ class PartnershipTickets(commands.Cog):
     @app_commands.command(name="setarchivecategory", description="Set the category where archived tickets are stored.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
+    @app_commands.guild_install()
     async def set_archive_category(self, interaction: discord.Interaction, category: discord.CategoryChannel):
         async with async_session() as session:
             existing = await session.get(ArchiveCategory, interaction.guild.id)
@@ -183,6 +184,7 @@ class PartnershipTickets(commands.Cog):
     @app_commands.command(name="deleteticket", description="Permanently delete a ticket thread.")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.guild_only()
+    @app_commands.guild_install()
     async def delete_ticket(self, interaction: Interaction):
         channel = interaction.channel
         if not channel.name.startswith("ticket-") and not channel.name.startswith("archived-ticket"):
