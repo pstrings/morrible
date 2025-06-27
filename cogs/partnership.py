@@ -85,7 +85,13 @@ class PartnershipTickets(commands.Cog):
 
         morrible_message = ("Ah, how simply *splendiferous*! Should you wish to court favor and engage in distinguished collaboration, "
                             "click below to open a thread where destiny—and perhaps partnership—awaits!")
-        await channel.send(morrible_message, view=OpenTicketButton(self.bot))
+        try:
+            await channel.send(morrible_message, view=OpenTicketButton(self.bot))
+        except discord.Forbidden:
+            return await interaction.response.send_message("❌ Bot lacks permission to send message in that channel.", ephemeral=True)
+        except discord.HTTPException as e:
+            return await interaction.response.send_message(f"❌ Failed to send message: {e}", ephemeral=True)
+
         await interaction.response.send_message(f"✅ Ticket channel set to {channel.mention} and UI posted.")
 
     @app_commands.command(name="closeticket", description="Close the current ticket.")
