@@ -45,6 +45,7 @@ class PartnershipTicket(Base):
     status = Column(String, default="open")  # "open" or "closed"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     closed_at = Column(DateTime(timezone=True), nullable=True)
+    ad_message_id = Column(BigInteger, nullable=True)
 
 
 class ModLogChannel(Base):
@@ -59,12 +60,6 @@ class PartnershipLogChannel(Base):
 
     guild_id = Column(BigInteger, primary_key=True)
     channel_id = Column(BigInteger, nullable=False)
-
-
-class ArchiveChannel(Base):
-    __tablename__ = "archive_channel"
-    guild_id = Column(BigInteger, primary_key=True)
-    channel_id = Column(BigInteger)
 
 
 async def init_db():
