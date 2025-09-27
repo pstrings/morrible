@@ -3,6 +3,7 @@
 import os
 import logging
 import asyncio
+import sys
 
 import discord
 from discord.ext import commands
@@ -13,6 +14,12 @@ from database.database import init_db
 # Load environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
+# Validate token before anything else
+if not DISCORD_TOKEN:
+    print("❌ ERROR: DISCORD_TOKEN environment variable is not set!")
+    print("Please create a .env file with DISCORD_TOKEN=your_bot_token")
+    sys.exit(1)
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +41,8 @@ class Morrible(commands.AutoShardedBot):
         await self.load_extension("cogs.moderation")
         await self.load_extension("cogs.partnership")
         await self.load_extension("cogs.reaction_roles")
+        await self.load_extension("cogs.automod")
+        await self.load_extension("cogs.blacklist_manager")
         logger.info("Cogs loaded")
 
     async def on_ready(self):
@@ -78,12 +87,12 @@ async def start_bot():
     logger.info("Database initialized.")
     bot = Morrible()
     async with bot:
-        await bot.start(DISCORD_TOKEN)
+        # DISCORD_TOKEN is now guaranteed to be a string due to earlier validation
+        await bot.start(str(DISCORD_TOKEN))
 
 
 def run_main():
     """Run the bot"""
-
     asyncio.run(start_bot())
 
 
