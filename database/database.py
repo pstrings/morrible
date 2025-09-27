@@ -1,17 +1,19 @@
 # pylint: disable=not-callable
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text
 from sqlalchemy.sql import func
 
 DATABASE_URL = "sqlite+aiosqlite:///./morrible.db"
 
 Base = declarative_base()
 engine = create_async_engine(DATABASE_URL, echo=False)
-async_session = sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False)
+
+# Use async_sessionmaker instead of sessionmaker for async support
+async_session = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 class Infraction(Base):
@@ -24,7 +26,8 @@ class Infraction(Base):
     moderator_id = Column(BigInteger, nullable=False)
     infraction_type = Column(String(20), nullable=False)
     reason = Column(String(500), nullable=False)
-    timestamp = Column(DateTime(timezone=False), server_default=func.now())
+    timestamp = Column(DateTime(timezone=True),
+                       server_default=func.now())  # Fixed timezone
     duration_seconds = Column(Integer, nullable=True)
 
 
@@ -42,7 +45,7 @@ class PartnershipTicket(Base):
     guild_id = Column(BigInteger, nullable=False)
     user_id = Column(BigInteger, nullable=False)
     channel_id = Column(BigInteger, nullable=False)
-    status = Column(String, default="open")  # "open" or "closed"
+    status = Column(String(20), default="open")  # Added length constraint
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     closed_at = Column(DateTime(timezone=True), nullable=True)
     ad_message_id = Column(BigInteger, nullable=True)
@@ -63,13 +66,11 @@ class PartnershipLogChannel(Base):
 
 
 async def init_db():
-    """Initialise Database"""
-
+    """Initialize Database"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db():
     """Close Database"""
-
     await engine.dispose()
