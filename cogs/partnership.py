@@ -160,32 +160,165 @@ class PartnershipTickets(commands.Cog):
         await interaction.response.send_message("✅ Ticket closed and deleted.", ephemeral=True)
         await channel.delete()
 
+    @app_commands.command(name="addpartner", description="Add a partner without opening a ticket.")
+    @app_commands.describe(user="The user to add as partner", server_name="Name of the server", server_link="Invite link to the server", ad_message_id="Message ID of the partner ad", description="Optional server description")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.guild_only()
+    @app_commands.guild_install()
+    async def add_partner(self, interaction: Interaction, user: discord.User, server_name: str, server_link: str, ad_message_id: str, description: str = None):
+        guild = interaction.guild
+
+        async with async_session() as session:
+            # Check if this user already has a partnership record
+            result = await session.execute(
+                select(PartnershipTicket).where(
+                    PartnershipTicket.guild_id == guild.id,
+                    PartnershipTicket.user_id == user.id,
+                    PartnershipTicket.ad_message_id.isnot(None)
+                )
+            )
+            existing_partner = result.scalar()
+
+            if existing_partner:
+                return await interaction.response.send_message("❌ This user already has an active partnership.", ephemeral=True)
+
+            # Create a new partnership record without a ticket
+            new_partner = PartnershipTicket(
+                guild_id=guild.id,
+                user_id=user.id,
+                channel_id=None,  # No channel since no ticket was opened
+                status="closed",  # Directly closed since no ticket process
+                closed_at=discord.utils.utcnow(),
+                ad_message_id=int(ad_message_id)
+            )
+            session.add(new_partner)
+            await session.commit()
+
+            # Create log embed
+            embed = discord.Embed(
+                title="🤝 Direct Partnership Added",
+                description="**Status:** Accepted ✅",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Partner", value=user.mention, inline=True)
+            embed.add_field(name="Added by",
+                            value=interaction.user.mention, inline=True)
+            embed.add_field(name="Server Name",
+                            value=server_name, inline=False)
+            embed.add_field(name="Server Link",
+                            value=server_link, inline=False)
+            if description:
+                embed.add_field(name="Server Description",
+                                value=description, inline=False)
+            embed.add_field(name="Ad Message ID",
+                            value=ad_message_id, inline=False)
+            embed.set_footer(text=f"Action taken in {guild.name}")
+            embed.timestamp = discord.utils.utcnow()
+
+            # Send to log channel
+            log_config = await session.get(PartnershipLogChannel, guild.id)
+            if log_config and log_config.channel_id:
+                log_channel = guild.get_channel(log_config.channel_id)
+                if log_channel and isinstance(log_channel, discord.TextChannel):
+                    await log_channel.send(embed=embed)
+
+        await interaction.response.send_message(f"✅ Successfully added {user.mention} as a partner.", ephemeral=True)
+
+    @app_commands.command(name="removepartner", description="Remove a partner and delete their ad.")
+    @app_commands.describe(user="The user to remove as partner")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.guild_only()
+    @app_commands.guild_install()
+    async def remove_partner(self, interaction: Interaction, user: discord.User):
+        guild = interaction.guild
+
+        async with async_session() as session:
+            # Find the partnership record
+            result = await session.execute(
+                select(PartnershipTicket).where(
+                    PartnershipTicket.guild_id == guild.id,
+                    PartnershipTicket.user_id == user.id,
+                    PartnershipTicket.ad_message_id.isnot(None)
+                )
+            )
+            partner = result.scalar()
+
+            if not partner:
+                return await interaction.response.send_message("❌ No active partnership found for this user.", ephemeral=True)
+
+            ad_message_id = partner.ad_message_id
+
+            # Delete the partnership record
+            await session.delete(partner)
+            await session.commit()
+
+            # Try to delete the ad message
+            try:
+                log_config = await session.get(PartnershipLogChannel, guild.id)
+                if log_config and log_config.channel_id:
+                    log_channel = guild.get_channel(log_config.channel_id)
+                    if log_channel and isinstance(log_channel, discord.TextChannel):
+                        ad_message = await log_channel.fetch_message(ad_message_id)
+                        await ad_message.delete()
+            except Exception as e:
+                print(f"Failed to delete ad message: {e}")
+
+            # Create log embed
+            embed = discord.Embed(
+                title="🗑️ Partnership Removed",
+                description="**Status:** Removed ❌",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="Former Partner",
+                            value=user.mention, inline=True)
+            embed.add_field(name="Removed by",
+                            value=interaction.user.mention, inline=True)
+            embed.add_field(name="Ad Message ID",
+                            value=ad_message_id, inline=False)
+            embed.set_footer(text=f"Action taken in {guild.name}")
+            embed.timestamp = discord.utils.utcnow()
+
+            # Send to log channel
+            if log_config and log_config.channel_id:
+                log_channel = guild.get_channel(log_config.channel_id)
+                if log_channel and isinstance(log_channel, discord.TextChannel):
+                    await log_channel.send(embed=embed)
+
+        await interaction.response.send_message(f"✅ Successfully removed {user.mention} as a partner and deleted their ad.", ephemeral=True)
+
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         async with async_session() as session:
             result = await session.execute(
                 select(PartnershipTicket).where(
                     PartnershipTicket.user_id == member.id,
-                    PartnershipTicket.status == "closed",
                     PartnershipTicket.ad_message_id.isnot(None)
                 )
             )
-            ticket = result.scalar()
-            if ticket:
-                guild = member.guild
-                try:
-                    log_config = await session.get(PartnershipLogChannel, guild.id)
-                    if not log_config:
-                        return
+            tickets = result.scalars().all()
 
-                    log_channel = guild.get_channel(log_config.channel_id)
+            for ticket in tickets:
+                try:
+                    log_config = await session.get(PartnershipLogChannel, member.guild.id)
+                    if not log_config:
+                        continue
+
+                    log_channel = member.guild.get_channel(
+                        log_config.channel_id)
                     if not log_channel:
-                        return
+                        continue
 
                     ad_message = await log_channel.fetch_message(ticket.ad_message_id)
                     await ad_message.delete()
+
+                    # Remove the partnership record
+                    await session.delete(ticket)
+
                 except Exception as e:
-                    print(f"Failed to delete ad message: {e}")
+                    print(
+                        f"Failed to delete ad message for leaving member: {e}")
+
+            await session.commit()
 
 
 async def setup(bot: commands.Bot):

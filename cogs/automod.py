@@ -1,3 +1,6 @@
+from utils.punishments import handle_punishment
+from utils.normalization import normalize
+from config.automod_config import *
 import discord
 from discord.ext import commands
 from discord import Member, Guild
@@ -7,12 +10,42 @@ import time
 import re
 import torch
 import sys
+import gc
+import hashlib
+from functools import lru_cache
 from typing import Optional, Deque, List, Dict, Any
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-from config.automod_config import *
-from utils.normalization import normalize
-from utils.punishments import handle_punishment
+# Initialize variables first to avoid unbound warnings
+TRANSFORMERS_AVAILABLE = False
+tokenizer = None
+model = None
+
+# Try to import transformers, fall back to rule-based if unavailable
+try:
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+    TRANSFORMERS_AVAILABLE = True
+
+    # --------------------------
+    # Load Lightweight Model (CPU friendly)
+    # --------------------------
+    try:
+        # Using a much smaller model
+        tokenizer = AutoTokenizer.from_pretrained(
+            "michellejieli/NSFW_text_classifier")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            "michellejieli/NSFW_text_classifier")
+        model.eval()
+        print("✅ Loaded lightweight NSFW text classifier model")
+    except Exception as e:
+        print(f"❌ Failed to load AI model: {e}")
+        TRANSFORMERS_AVAILABLE = False
+        tokenizer = None
+        model = None
+
+except ImportError:
+    print("Transformers not available, using rule-based detection only")
+    TRANSFORMERS_AVAILABLE = False
+
 
 # --------------------------
 # Configuration Validation
@@ -50,15 +83,6 @@ message_queue: asyncio.Queue = asyncio.Queue()
 processing_lock: asyncio.Lock = asyncio.Lock()
 user_processing_times: Dict[int, float] = defaultdict(lambda: 0.0)
 
-# --------------------------
-# Load Hugging Face Model (CPU friendly)
-# --------------------------
-tokenizer = AutoTokenizer.from_pretrained(
-    "cardiffnlp/twitter-xlm-roberta-base-toxic")
-model = AutoModelForSequenceClassification.from_pretrained(
-    "cardiffnlp/twitter-xlm-roberta-base-toxic")
-model.eval()
-
 # Type interface for BlacklistManager cog
 
 
@@ -77,11 +101,65 @@ class AutoMod(commands.Cog):
         self.bot = bot
         # Loaded dynamically
         self.blacklist_cog: Optional[BlacklistManagerCog] = None
+        self.processed_hashes = set()
 
         # Start background tasks
         self.bot.loop.create_task(self.cleanup_inactive_users())
         if MEGA_SERVER_MODE:
             self.bot.loop.create_task(self.process_queue())
+
+    # ----------------------
+    # Text hashing for caching
+    # ----------------------
+    @lru_cache(maxsize=1000)
+    def get_text_hash(self, text: str) -> str:
+        """Create hash for text caching"""
+        return hashlib.md5(text.encode('utf-8', errors='ignore')).hexdigest()
+
+    # ----------------------
+    # Lightweight rule-based toxicity check
+    # ----------------------
+    def rule_based_toxicity_check(self, text: str) -> bool:
+        """Lightweight rule-based toxicity detection as fallback"""
+        if len(text.strip()) < SUBSTRING_MIN:
+            return False
+
+        text_lower = text.lower()
+
+        # Skip allowed contexts first
+        if self.allowed_context_check(text):
+            return False
+
+        # High-risk word patterns (common toxic terms)
+        high_risk_patterns = [
+            r'\b(?:fuck|shit|bitch|asshole|dick|pussy|cunt)\w*\b',
+            r'\b(?:kill|murder|hurt|harm)\s+(?:yourself|myself|themselves|us)\b',
+            r'\b(?:nigg|fag|retard)\w*\b',
+            r'\b(?:die\s+u|kys|kill\s+urself)\b',
+        ]
+
+        # Check high-risk patterns
+        for pattern in high_risk_patterns:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return True
+
+        # Check for excessive caps (yelling)
+        if len(text) > 10:
+            caps_count = sum(1 for c in text if c.isupper())
+            if caps_count > 5 and caps_count / len(text) > 0.6:
+                return True
+
+        # Check for excessive repetition
+        words = text.split()
+        if len(words) > 5:
+            word_counts = {}
+            for word in words:
+                word_counts[word] = word_counts.get(word, 0) + 1
+            most_common_count = max(word_counts.values()) if word_counts else 0
+            if most_common_count > len(words) * 0.4:  # 40% repetition
+                return True
+
+        return False
 
     # ----------------------
     # Add message to buffers
@@ -136,27 +214,68 @@ class AutoMod(commands.Cog):
         return any(phrase in text for phrase in ALLOWED_SEXUAL_CONTEXT)
 
     # ----------------------
-    # AI Toxicity check (Substring scanning)
+    # AI Toxicity check (Substring scanning) - Optimized
     # ----------------------
     def ai_classify(self, text: str) -> bool:
+        """Optimized AI classification with caching and sampling"""
+        if not TRANSFORMERS_AVAILABLE or model is None or tokenizer is None:
+            return self.rule_based_toxicity_check(text)
+
         if len(text.strip()) < SUBSTRING_MIN:
+            return False
+
+        # Check cache first
+        text_hash = self.get_text_hash(text)
+        if text_hash in self.processed_hashes:
             return False
 
         # If clearly benign identity/education phrasing, skip AI flagging
         if self.allowed_context_check(text):
+            self.processed_hashes.add(text_hash)
             return False
 
         try:
-            inputs = tokenizer(text, return_tensors="pt",
-                               truncation=True, padding=True, max_length=512)
-            with torch.no_grad():
-                outputs = model(**inputs)
-                scores = torch.softmax(outputs.logits, dim=1)
-                toxic_score = scores[0][1].item()
-                return toxic_score >= AI_TOXIC_THRESHOLD
+            # Sample longer texts instead of processing everything
+            if len(text) > 200:
+                # Take strategic samples
+                samples = [
+                    text[:150],  # Beginning
+                    text[-150:],  # End
+                ]
+                # Add middle sample for very long texts
+                if len(text) > 300:
+                    mid_start = len(text) // 2 - 75
+                    samples.append(text[mid_start:mid_start + 150])
+            else:
+                samples = [text]
+
+            for sample in samples:
+                # Use shorter max_length for efficiency
+                inputs = tokenizer(sample, return_tensors="pt",
+                                   truncation=True, padding=True, max_length=128)
+
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    scores = torch.softmax(outputs.logits, dim=1)
+                    # Assuming index 1 is toxic class
+                    toxic_score = scores[0][1].item()
+
+                    if toxic_score >= AI_TOXIC_THRESHOLD:
+                        self.processed_hashes.add(text_hash)
+                        return True
+
+            self.processed_hashes.add(text_hash)
+            return False
+
         except Exception as e:
             print(f"AI classification error: {e}")
-            return False  # Fail-safe: don't flag on AI errors
+            # Fall back to rule-based
+            return self.rule_based_toxicity_check(text)
+        finally:
+            # Clean up memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
     # ----------------------
     # Queue message for batch processing
@@ -171,7 +290,7 @@ class AutoMod(commands.Cog):
         while True:
             await asyncio.sleep(BATCH_DELAY)
             batch = []
-            while not message_queue.empty():
+            while not message_queue.empty() and len(batch) < 10:  # Limit batch size
                 batch.append(await message_queue.get())
             if batch:
                 async with processing_lock:
@@ -179,12 +298,21 @@ class AutoMod(commands.Cog):
                         await self.process_user_buffer(msg.author.id, msg)
 
     # ----------------------
-    # Process user buffer with sliding window
+    # Process user buffer with sliding window - Optimized
     # ----------------------
     async def process_user_buffer(self, user_id: int, message: discord.Message):
         now = time.time()
-        if now - user_processing_times[user_id] < 5:  # 5 second cooldown
+
+        # Increased cooldown and minimum message requirement
+        # 30 second cooldown per user
+        if now - user_processing_times[user_id] < 30:
             return
+
+        # Only process if user has sent enough messages
+        # Require at least 2 messages
+        if len(user_message_buffers[user_id]) < 2:
+            return
+
         user_processing_times[user_id] = now
 
         try:
@@ -204,22 +332,8 @@ class AutoMod(commands.Cog):
                     combined_normalized = "".join(
                         user_sequence_buffers[user_id])
                     if len(combined_normalized) >= SUBSTRING_MIN:
-                        # Check entire combined text first (most common case)
-                        if self.ai_classify(combined_normalized[:SUBSTRING_MAX*2]):
-                            ai_flagged = True
-                        elif len(combined_normalized) > SUBSTRING_MAX*2:
-                            # Check middle and end sections
-                            mid_start = len(
-                                combined_normalized) // 2 - SUBSTRING_MAX // 2
-                            check_points = [
-                                combined_normalized[mid_start:mid_start +
-                                                    SUBSTRING_MAX],
-                                combined_normalized[-SUBSTRING_MAX:]
-                            ]
-                            for chunk in check_points:
-                                if len(chunk) >= SUBSTRING_MIN and self.ai_classify(chunk):
-                                    ai_flagged = True
-                                    break
+                        # Check with optimized AI/rule-based method
+                        ai_flagged = self.ai_classify(combined_normalized)
 
                 if not (regex_flagged or ai_flagged):
                     return
@@ -228,7 +342,8 @@ class AutoMod(commands.Cog):
                 channel = message.channel
                 deleted_count = 0
                 try:
-                    async for m in channel.history(limit=50):
+                    # Reduced from 50
+                    async for m in channel.history(limit=30):
                         if m.author.id == user_id and m.id != message.id and deleted_count < MAX_BUFFER:
                             # Check if this message content is in our buffer
                             for buffered_msg in messages:
@@ -294,6 +409,11 @@ class AutoMod(commands.Cog):
                     user_locks.pop(uid, None)
                     user_processing_times.pop(uid, None)
 
+                # Clean up processed hashes cache periodically
+                if len(self.processed_hashes) > 5000:
+                    self.processed_hashes.clear()
+                    self.get_text_hash.cache_clear()
+
                 print(
                     f"AutoMod cleanup: Removed {len(inactive_users)} inactive users")
             except Exception as e:
@@ -306,7 +426,7 @@ class AutoMod(commands.Cog):
         """Log AutoMod actions to the moderation channel"""
         if not MOD_LOG_CHANNEL_ID:
             return
-            
+
         try:
             channel = guild.get_channel(MOD_LOG_CHANNEL_ID)
             if channel and isinstance(channel, discord.TextChannel):

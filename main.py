@@ -22,7 +22,7 @@ if not DISCORD_TOKEN:
     sys.exit(1)
 
 # Logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("morrible")
 
 
@@ -41,8 +41,8 @@ class Morrible(commands.AutoShardedBot):
         await self.load_extension("cogs.moderation")
         await self.load_extension("cogs.partnership")
         await self.load_extension("cogs.reaction_roles")
-        # await self.load_extension("cogs.automod")
-        # await self.load_extension("cogs.blacklist_manager")
+        await self.load_extension("cogs.automod")
+        await self.load_extension("cogs.blacklist_manager")
         logger.info("Cogs loaded")
 
     async def on_ready(self):
