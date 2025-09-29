@@ -168,6 +168,10 @@ class PartnershipTickets(commands.Cog):
     async def add_partner(self, interaction: Interaction, user: discord.User, server_name: str, server_link: str, ad_message_id: str, description: str = None):
         guild = interaction.guild
 
+        # Hardcoded partnership channel ID - REPLACE THIS WITH YOUR ACTUAL CHANNEL ID
+        # Replace with your actual channel ID
+        PARTNERSHIP_CHANNEL_ID = 123456789012345678
+
         async with async_session() as session:
             # Check if this user already has a partnership record
             result = await session.execute(
@@ -182,11 +186,11 @@ class PartnershipTickets(commands.Cog):
             if existing_partner:
                 return await interaction.response.send_message("❌ This user already has an active partnership.", ephemeral=True)
 
-            # Create a new partnership record without a ticket
+            # Create a new partnership record using the hardcoded channel ID
             new_partner = PartnershipTicket(
                 guild_id=guild.id,
                 user_id=user.id,
-                channel_id=None,  # No channel since no ticket was opened
+                channel_id=PARTNERSHIP_CHANNEL_ID,  # Use the hardcoded channel ID
                 status="closed",  # Directly closed since no ticket process
                 closed_at=discord.utils.utcnow(),
                 ad_message_id=int(ad_message_id)
