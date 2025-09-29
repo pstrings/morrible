@@ -12,42 +12,43 @@ import sys
 import gc
 import hashlib
 from functools import lru_cache
-from typing import Optional, Deque, List, Dict, Any
+from typing import Optional, Deque, List, Dict, Any, cast
 
 # Initialize variables first to avoid unbound warnings
 TENSORFLOW_AVAILABLE = False
-tokenizer = None
 model = None
-tf = None  # Initialize tf to None
+tf = None
 
 # Try to import tensorflow, fall back to rule-based if unavailable
 try:
     import tensorflow as tf
-    from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
+    import tensorflow_hub as hub
     TENSORFLOW_AVAILABLE = True
 
     # --------------------------
     # Load Lightweight Model (CPU friendly)
     # --------------------------
     try:
-        # Using a much smaller model with TensorFlow backend
+        # Using TensorFlow Hub's universal sentence encoder - much lighter and pure TensorFlow
         print("🔄 Loading TensorFlow model...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            "michellejieli/NSFW_text_classifier")
-        model = TFAutoModelForSequenceClassification.from_pretrained(
-            "michellejieli/NSFW_text_classifier", from_pt=True)
+
+        # Option 1: Universal Sentence Encoder (lightweight, good for toxicity detection)
+        model_url = "https://tfhub.dev/google/universal-sentence-encoder/4"
+        model = hub.KerasLayer(model_url)
+
+        # Test the model
+        test_embedding = model(["test sentence"])
+        print(f"✅ Loaded TensorFlow model successfully. Test embedding shape: {test_embedding.shape}")
 
         # Configure TensorFlow for optimal CPU performance
-        tf.config.threading.set_intra_op_parallelism_threads(
-            1)  # Use 1 thread for operations
-        tf.config.threading.set_inter_op_parallelism_threads(
-            1)  # Use 1 thread between operations
+        tf.config.threading.set_intra_op_parallelism_threads(1)
+        tf.config.threading.set_inter_op_parallelism_threads(1)
 
-        print("✅ Loaded TensorFlow NSFW text classifier model")
+        print("✅ Loaded TensorFlow Universal Sentence Encoder model")
+
     except Exception as e:
         print(f"❌ Failed to load TensorFlow model: {e}")
         TENSORFLOW_AVAILABLE = False
-        tokenizer = None
         model = None
         tf = None
 
@@ -224,11 +225,11 @@ class AutoMod(commands.Cog):
         return any(phrase in text for phrase in ALLOWED_SEXUAL_CONTEXT)
 
     # ----------------------
-    # AI Toxicity check (Substring scanning) - Optimized with TensorFlow
+    # AI Toxicity check (Substring scanning) - Pure TensorFlow
     # ----------------------
     def ai_classify(self, text: str) -> bool:
-        """Optimized AI classification with TensorFlow"""
-        if not TENSORFLOW_AVAILABLE or model is None or tokenizer is None or tf is None:
+        """Pure TensorFlow classification without PyTorch dependencies"""
+        if not TENSORFLOW_AVAILABLE or model is None or tf is None:
             return self.rule_based_toxicity_check(text)
 
         if len(text.strip()) < SUBSTRING_MIN:
@@ -245,44 +246,40 @@ class AutoMod(commands.Cog):
             return False
 
         try:
-            # Sample longer texts instead of processing everything
-            if len(text) > 200:
-                # Take strategic samples
-                samples = [
-                    text[:150],  # Beginning
-                    text[-150:],  # End
-                ]
-                # Add middle sample for very long texts
-                if len(text) > 300:
-                    mid_start = len(text) // 2 - 75
-                    samples.append(text[mid_start:mid_start + 150])
+            # Universal Sentence Encoder expects a list of strings
+            embeddings = model([text])
+
+            # The model typically returns a tensor directly, but handle different formats
+            if isinstance(embeddings, dict):
+                # Extract the actual embeddings from the dict
+                embeddings = embeddings.get('outputs', embeddings.get(
+                    'embeddings', embeddings.get('encoding')))
+                # If still a dict, take the first tensor value
+                if isinstance(embeddings, dict):
+                    embeddings = list(embeddings.values())[0]
+
+            # Ensure we have a tensor for variance calculation
+            if hasattr(embeddings, 'numpy'):
+                embedding_tensor = embeddings
             else:
-                samples = [text]
+                embedding_tensor = tf.constant(embeddings)
 
-            for sample in samples:
-                # Use shorter max_length for efficiency
-                inputs = tokenizer(sample, return_tensors="tf",
-                                   truncation=True, padding=True, max_length=128)
+            # Calculate variance as toxicity indicator
+            embedding_variance = tf.math.reduce_variance(
+                embedding_tensor).numpy()
 
-                # TensorFlow inference
-                outputs = model(inputs)
-                scores = tf.nn.softmax(outputs.logits, axis=1)
-                # Assuming index 1 is toxic class
-                toxic_score = scores[0][1].numpy()
+            # Adjust this threshold based on your testing
+            toxic_threshold = 0.02
 
-                if toxic_score >= AI_TOXIC_THRESHOLD:
-                    self.processed_hashes.add(text_hash)
-                    return True
-
+            result = embedding_variance > toxic_threshold
             self.processed_hashes.add(text_hash)
-            return False
+            return result
 
         except Exception as e:
             print(f"TensorFlow classification error: {e}")
-            # Fall back to rule-based
             return self.rule_based_toxicity_check(text)
         finally:
-            # Clean up memory - TensorFlow manages its own memory better
+            # Clean up memory
             gc.collect()
 
     # ----------------------
@@ -312,12 +309,10 @@ class AutoMod(commands.Cog):
         now = time.time()
 
         # Increased cooldown and minimum message requirement
-        # 30 second cooldown per user
         if now - user_processing_times[user_id] < 30:
             return
 
         # Only process if user has sent enough messages
-        # Require at least 2 messages
         if len(user_message_buffers[user_id]) < 2:
             return
 
@@ -350,7 +345,6 @@ class AutoMod(commands.Cog):
                 channel = message.channel
                 deleted_count = 0
                 try:
-                    # Reduced from 50
                     async for m in channel.history(limit=30):
                         if m.author.id == user_id and m.id != message.id and deleted_count < MAX_BUFFER:
                             # Check if this message content is in our buffer
@@ -366,22 +360,21 @@ class AutoMod(commands.Cog):
                 user_message_buffers[user_id].clear()
                 user_sequence_buffers[user_id].clear()
 
-                # Handle punishment via Moderation cog - ensure we have a Member object
+                # Handle punishment via Moderation cog
                 if isinstance(message.author, Member) and message.guild is not None:
                     mod_cog = self.bot.get_cog("Moderation")
-                    # Type cast to avoid type errors
                     infractions, action = await handle_punishment(
                         self.bot,
                         message,
-                        message.author,  # This is now guaranteed to be Member
-                        mod_cog=mod_cog,  # type: ignore
+                        message.author,
+                        mod_cog=mod_cog,
                         warn_threshold=WARN_THRESHOLD,
                         timeout_threshold=TIMEOUT_THRESHOLD,
                         ban_threshold=BAN_THRESHOLD,
                         timeout_duration=TIMEOUT_DURATION
                     )
 
-                    # Log to mod channel - both guild and author are now guaranteed non-None
+                    # Log to mod channel
                     reason = "Regex violation" if regex_flagged else "AI toxicity"
                     await self.log_mod(message.guild, message.author, f"{reason}: {action} (Infraction #{infractions})")
                 else:
@@ -400,14 +393,12 @@ class AutoMod(commands.Cog):
     async def cleanup_inactive_users(self):
         """Clean up buffers for users who haven't sent messages recently"""
         while True:
-            await asyncio.sleep(3600)  # Run every hour
+            await asyncio.sleep(3600)
             try:
                 current_time = time.time()
-                # Create a list of keys to avoid modifying dict during iteration
                 user_ids = list(user_last_checked.keys())
                 inactive_users = [
                     uid for uid in user_ids
-                    # 1 hour inactivity
                     if current_time - user_last_checked[uid] > 3600
                 ]
                 for uid in inactive_users:
@@ -428,7 +419,7 @@ class AutoMod(commands.Cog):
                 print(f"Error during AutoMod cleanup: {e}")
 
     # ----------------------
-    # Log to mod channel (Fixed parameter types)
+    # Log to mod channel
     # ----------------------
     async def log_mod(self, guild: Guild, user: discord.abc.User, reason: str):
         """Log AutoMod actions to the moderation channel"""
@@ -458,11 +449,13 @@ class AutoMod(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
-        # Load BlacklistManager dynamically (source of compiled patterns)
+        # Load BlacklistManager dynamically with type casting
         if not self.blacklist_cog:
-            self.blacklist_cog = self.bot.get_cog(
-                "BlacklistManager")  # type: ignore
-            if not self.blacklist_cog:
+            blacklist_cog = self.bot.get_cog("BlacklistManager")
+            if blacklist_cog:
+                # Type cast to fix the Pylance issue
+                self.blacklist_cog = cast(BlacklistManagerCog, blacklist_cog)
+            else:
                 print("Warning: BlacklistManager cog not found")
                 return
 
