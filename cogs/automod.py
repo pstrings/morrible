@@ -103,6 +103,11 @@ class AutoMod(commands.Cog):
         self.blacklist_cog: Optional[BlacklistManagerCog] = None
         self.processed_hashes = set()
 
+        # Optimize PyTorch for single-core CPU usage
+        if hasattr(torch, 'set_num_threads'):
+            torch.set_num_threads(1)  # Use only 1 CPU core
+            print("✅ Optimized PyTorch for single-core CPU usage")
+
         # Start background tasks
         self.bot.loop.create_task(self.cleanup_inactive_users())
         if MEGA_SERVER_MODE:
