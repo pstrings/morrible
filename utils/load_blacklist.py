@@ -42,10 +42,10 @@ def _save_dynamic_words(words: Iterable[str]) -> None:
 def word_to_flexible_regex(word: str) -> str:
     """
     Convert a plain word into a regex resilient to separators/obfuscation.
-    Example: 'fuck' -> f[^\w]*u[^\w]*c[^\w]*k
+    Example: 'fuck' -> f[^\\w]*u[^\\w]*c[^\\w]*k
     """
     letters = [re.escape(ch) for ch in word]
-    return r"[^\w]*".join(letters)
+    return r"[^\w]*".join(letters)  # Use raw string to fix the warning
 
 
 def compile_blacklist_patterns() -> List[Pattern]:
