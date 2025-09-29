@@ -8,7 +8,6 @@ from collections import defaultdict, deque
 import asyncio
 import time
 import re
-import torch
 import sys
 import gc
 import hashlib
@@ -16,35 +15,46 @@ from functools import lru_cache
 from typing import Optional, Deque, List, Dict, Any
 
 # Initialize variables first to avoid unbound warnings
-TRANSFORMERS_AVAILABLE = False
+TENSORFLOW_AVAILABLE = False
 tokenizer = None
 model = None
+tf = None  # Initialize tf to None
 
-# Try to import transformers, fall back to rule-based if unavailable
+# Try to import tensorflow, fall back to rule-based if unavailable
 try:
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-    TRANSFORMERS_AVAILABLE = True
+    import tensorflow as tf
+    from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
+    TENSORFLOW_AVAILABLE = True
 
     # --------------------------
     # Load Lightweight Model (CPU friendly)
     # --------------------------
     try:
-        # Using a much smaller model
+        # Using a much smaller model with TensorFlow backend
+        print("🔄 Loading TensorFlow model...")
         tokenizer = AutoTokenizer.from_pretrained(
             "michellejieli/NSFW_text_classifier")
-        model = AutoModelForSequenceClassification.from_pretrained(
+        model = TFAutoModelForSequenceClassification.from_pretrained(
             "michellejieli/NSFW_text_classifier")
-        model.eval()
-        print("✅ Loaded lightweight NSFW text classifier model")
+
+        # Configure TensorFlow for optimal CPU performance
+        tf.config.threading.set_intra_op_parallelism_threads(
+            1)  # Use 1 thread for operations
+        tf.config.threading.set_inter_op_parallelism_threads(
+            1)  # Use 1 thread between operations
+
+        print("✅ Loaded TensorFlow NSFW text classifier model")
     except Exception as e:
-        print(f"❌ Failed to load AI model: {e}")
-        TRANSFORMERS_AVAILABLE = False
+        print(f"❌ Failed to load TensorFlow model: {e}")
+        TENSORFLOW_AVAILABLE = False
         tokenizer = None
         model = None
+        tf = None
 
 except ImportError:
-    print("Transformers not available, using rule-based detection only")
-    TRANSFORMERS_AVAILABLE = False
+    print("TensorFlow not available, using rule-based detection only")
+    TENSORFLOW_AVAILABLE = False
+    tf = None
 
 
 # --------------------------
@@ -102,11 +112,6 @@ class AutoMod(commands.Cog):
         # Loaded dynamically
         self.blacklist_cog: Optional[BlacklistManagerCog] = None
         self.processed_hashes = set()
-
-        # Optimize PyTorch for single-core CPU usage
-        if hasattr(torch, 'set_num_threads'):
-            torch.set_num_threads(1)  # Use only 1 CPU core
-            print("✅ Optimized PyTorch for single-core CPU usage")
 
         # Start background tasks
         self.bot.loop.create_task(self.cleanup_inactive_users())
@@ -219,11 +224,11 @@ class AutoMod(commands.Cog):
         return any(phrase in text for phrase in ALLOWED_SEXUAL_CONTEXT)
 
     # ----------------------
-    # AI Toxicity check (Substring scanning) - Optimized
+    # AI Toxicity check (Substring scanning) - Optimized with TensorFlow
     # ----------------------
     def ai_classify(self, text: str) -> bool:
-        """Optimized AI classification with caching and sampling"""
-        if not TRANSFORMERS_AVAILABLE or model is None or tokenizer is None:
+        """Optimized AI classification with TensorFlow"""
+        if not TENSORFLOW_AVAILABLE or model is None or tokenizer is None or tf is None:
             return self.rule_based_toxicity_check(text)
 
         if len(text.strip()) < SUBSTRING_MIN:
@@ -256,30 +261,28 @@ class AutoMod(commands.Cog):
 
             for sample in samples:
                 # Use shorter max_length for efficiency
-                inputs = tokenizer(sample, return_tensors="pt",
+                inputs = tokenizer(sample, return_tensors="tf",
                                    truncation=True, padding=True, max_length=128)
 
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    scores = torch.softmax(outputs.logits, dim=1)
-                    # Assuming index 1 is toxic class
-                    toxic_score = scores[0][1].item()
+                # TensorFlow inference
+                outputs = model(inputs)
+                scores = tf.nn.softmax(outputs.logits, axis=1)
+                # Assuming index 1 is toxic class
+                toxic_score = scores[0][1].numpy()
 
-                    if toxic_score >= AI_TOXIC_THRESHOLD:
-                        self.processed_hashes.add(text_hash)
-                        return True
+                if toxic_score >= AI_TOXIC_THRESHOLD:
+                    self.processed_hashes.add(text_hash)
+                    return True
 
             self.processed_hashes.add(text_hash)
             return False
 
         except Exception as e:
-            print(f"AI classification error: {e}")
+            print(f"TensorFlow classification error: {e}")
             # Fall back to rule-based
             return self.rule_based_toxicity_check(text)
         finally:
-            # Clean up memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Clean up memory - TensorFlow manages its own memory better
             gc.collect()
 
     # ----------------------
