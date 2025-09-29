@@ -35,7 +35,7 @@ try:
         tokenizer = AutoTokenizer.from_pretrained(
             "michellejieli/NSFW_text_classifier")
         model = TFAutoModelForSequenceClassification.from_pretrained(
-            "michellejieli/NSFW_text_classifier")
+            "michellejieli/NSFW_text_classifier", from_pt=True)
 
         # Configure TensorFlow for optimal CPU performance
         tf.config.threading.set_intra_op_parallelism_threads(
