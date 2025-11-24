@@ -308,47 +308,68 @@ class Moderation(commands.Cog):
 
     # Ban a member
 
-    @app_commands.command(name="ban", description="Ban a member with a reason via DM")
-    @app_commands.describe(member="The user to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
+    @app_commands.command(name="ban", description="Ban a member or user ID with a reason via DM")
+    @app_commands.describe(member_or_id="The user (mention or user ID) to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
     @app_commands.guild_only()
     @app_commands.guild_install()
     @require_role(2)
-    async def ban(self, interaction: discord.Interaction, member: discord.Member, *, reason: str, delete_message_days: int = 0):
-        """Command to ban members from the server."""
+    async def ban(self, interaction: discord.Interaction, member_or_id: str, *, reason: str, delete_message_days: int = 0):
+        """Command to ban members or users from the server."""
+        # Parse input to get user ID
+        try:
+            user_id = int(member_or_id.strip("<@!>"))
+        except Exception:
+            return await interaction.response.send_message("Provide a valid user mention or user ID.", ephemeral=True)
 
         # Prevent self ban
-        if member.id == interaction.user.id:
+        if user_id == interaction.user.id:
             await interaction.response.send_message("You are not allowed to ban yourself.", ephemeral=False)
+            return
 
         # Prevent banning the bot
-        if member.id == self.bot.user.id:
+        if user_id == self.bot.user.id:
             await interaction.response.send_message("You are not allowed to ban the bot", ephemeral=False)
+            return
 
-        issuer_level = get_highest_role_level(interaction.user)
-        target_level = get_highest_role_level(member)
-
-        if issuer_level <= target_level:
-            return await interaction.response.send_message("You cannot ban someone with an equal or higher role.", ephemeral=False)
-
+        # Validate delete_message_days
         if delete_message_days < 0 or delete_message_days > 7:
-            return await interaction.response.send_message("you can only delete messages upto 7 days. This number can not be less than 0.")
+            await interaction.response.send_message("You can only delete messages up to 7 days. Must not be less than 0.", ephemeral=True)
+            return
+
+        member = interaction.guild.get_member(user_id)
+        issuer_level = get_highest_role_level(interaction.user)
+
+        if member:
+            target_level = get_highest_role_level(member)
+            if issuer_level <= target_level:
+                await interaction.response.send_message("You cannot ban someone with an equal or higher role.", ephemeral=False)
+                return
 
         await interaction.response.defer(thinking=False)
 
         try:
+            user_obj = member or await self.bot.fetch_user(user_id)
+            dm_failed = False
             try:
-                await member.send(f"You have been banned from {interaction.guild.name} for: {reason}")
+                await user_obj.send(f"You have been banned from {interaction.guild.name} for: {reason}")
             except discord.Forbidden:
-                await interaction.followup.send("I do not have permission to dm this user.", ephemeral=True)
-            await member.ban(delete_message_days=delete_message_days, reason=reason)
-            await interaction.followup.send(f"{member.mention} has been banned. Deleted last {delete_message_days} days of messages.", ephemeral=False)
+                dm_failed = True
+
+            await interaction.guild.ban(user_obj, delete_message_days=delete_message_days, reason=reason)
+            
+            response_message = f"<@{user_id}> has been banned. Deleted last {delete_message_days} days of messages."
+            if dm_failed:
+                response_message += " (Could not send DM to the user.)"
+
+            await interaction.followup.send(response_message, ephemeral=False)
             await save_infraction(
-                user_id=member.id,
+                user_id=user_id,
                 moderator_id=interaction.user.id,
                 infraction_type="ban",
                 reason=reason
             )
-            await send_mod_log(self.bot, interaction.guild, "Ban", interaction.user, member, reason)
+            await send_mod_log(self.bot, interaction.guild, "Ban", interaction.user, user_obj, reason)
+
         except discord.Forbidden:
             await interaction.followup.send("I do not have permission to ban this user.", ephemeral=True)
         except Exception as e:
