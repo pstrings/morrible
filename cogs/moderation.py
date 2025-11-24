@@ -356,7 +356,7 @@ class Moderation(commands.Cog):
                 dm_failed = True
 
             await interaction.guild.ban(user_obj, delete_message_days=delete_message_days, reason=reason)
-            
+
             response_message = f"<@{user_id}> has been banned. Deleted last {delete_message_days} days of messages."
             if dm_failed:
                 response_message += " (Could not send DM to the user.)"
@@ -528,23 +528,48 @@ class Moderation(commands.Cog):
 
     # Clear Messages
 
-    @app_commands.command(name="purge", description="Delete a specific number of recent messages")
-    @app_commands.describe(amount="The number of messages to delete (1-100)")
+    @app_commands.command(name="purge", description="Delete recent messages, optionally by user")
+    @app_commands.describe(amount="The number of messages to delete (1-100)", user="(Optional) Mention or user ID to delete only messages from this user")
     @app_commands.guild_only()
     @app_commands.guild_install()
     @require_role(3)
-    async def purge(self, interaction: discord.Interaction, amount: int):
-        """Deletes a specified number of recent messages from the channel."""
-        if amount < 0 or amount > 100:
+    async def purge(self, interaction: discord.Interaction, amount: int, user: str = None):
+        """Deletes a specified number of recent messages, optionally only from a given user."""
+
+        if amount < 1 or amount > 100:
             return await interaction.response.send_message("Amount must be between 1 and 100.", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
 
-        try:
-            deleted = await interaction.channel.purge(limit=amount)
-            await interaction.followup.send(f"Deleted {len(deleted)} messages.")
-            await send_mod_log(self.bot, interaction.guild, action="Purge", moderator=interaction.user, extra=f"Deleted {len(deleted)} messages in {interaction.channel.mention}")
+        target_user_id = None
+        if user:
+            try:
+                target_user_id = int(user.strip("<@!>"))
+            except Exception:
+                return await interaction.followup.send("Please provide a valid mention or user ID.", ephemeral=True)
 
+        def check(msg):
+            if target_user_id is None:
+                return True
+            return msg.author.id == target_user_id
+
+        try:
+            deleted = await interaction.channel.purge(limit=amount, check=check)
+            await interaction.followup.send(
+                f"Deleted {len(deleted)} messages." +
+                (f" (Only from <@{target_user_id}>)" if target_user_id else "")
+            )
+            await send_mod_log(
+                self.bot,
+                interaction.guild,
+                action="Purge",
+                moderator=interaction.user,
+                extra=(
+                    f"Deleted {len(deleted)} messages" +
+                    (f" from <@{target_user_id}>" if target_user_id else "") +
+                    f" in {interaction.channel.mention}"
+                )
+            )
         except discord.Forbidden:
             await interaction.followup.send("I do not have permission to delete messages in this channel.", ephemeral=True)
         except Exception as e:
