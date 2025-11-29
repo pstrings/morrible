@@ -2,7 +2,7 @@ from discord.ext import commands
 from discord import app_commands, Interaction, ui
 import discord
 from sqlalchemy.future import select
-from database.database import TicketChannel, PartnershipTicket, PartnershipLogChannel, async_session
+from database.database import TicketChannel, PartnershipTicket, TicketLogChannel, async_session
 
 
 class OpenTicketButton(ui.View):
@@ -53,21 +53,6 @@ class OpenTicketButton(ui.View):
 class PartnershipTickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    @app_commands.command(name="setticketlogs", description="Set the channel where ticket close logs will be sent.")
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.guild_only()
-    @app_commands.guild_install()
-    async def set_ticket_logs_channel(self, interaction: discord.Interaction, log_channel: discord.TextChannel):
-        async with async_session() as session:
-            existing = await session.get(PartnershipLogChannel, interaction.guild.id)
-            if existing:
-                existing.channel_id = log_channel.id
-            else:
-                session.add(PartnershipLogChannel(
-                    guild_id=interaction.guild.id, channel_id=log_channel.id))
-            await session.commit()
-        await interaction.response.send_message(f"✅ Ticket logs channel set to {log_channel.mention}")
 
     @app_commands.command(name="setticketchannel", description="Set the channel where tickets will be created and post ticket UI.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -149,9 +134,7 @@ class PartnershipTickets(commands.Cog):
                                     value=ad_message_id, inline=False)
 
                 embed.set_footer(text=f"Action taken in {guild.name}")
-                embed.timestamp = discord.utils.utcnow()
-
-                log_config = await session.get(PartnershipLogChannel, guild.id)
+                log_config = await session.get(TicketLogChannel, guild.id)
                 if log_config and log_config.channel_id:
                     log_channel = guild.get_channel(log_config.channel_id)
                     if log_channel and isinstance(log_channel, discord.TextChannel):
@@ -220,7 +203,7 @@ class PartnershipTickets(commands.Cog):
             embed.timestamp = discord.utils.utcnow()
 
             # Send to log channel
-            log_config = await session.get(PartnershipLogChannel, guild.id)
+            log_config = await session.get(TicketLogChannel, guild.id)
             if log_config and log_config.channel_id:
                 log_channel = guild.get_channel(log_config.channel_id)
                 if log_channel and isinstance(log_channel, discord.TextChannel):
@@ -258,7 +241,7 @@ class PartnershipTickets(commands.Cog):
 
             # Try to delete the ad message
             try:
-                log_config = await session.get(PartnershipLogChannel, guild.id)
+                log_config = await session.get(TicketLogChannel, guild.id)
                 if log_config and log_config.channel_id:
                     log_channel = guild.get_channel(log_config.channel_id)
                     if log_channel and isinstance(log_channel, discord.TextChannel):
@@ -303,7 +286,7 @@ class PartnershipTickets(commands.Cog):
 
             for ticket in tickets:
                 try:
-                    log_config = await session.get(PartnershipLogChannel, member.guild.id)
+                    log_config = await session.get(TicketLogChannel, member.guild.id)
                     if not log_config:
                         continue
 
