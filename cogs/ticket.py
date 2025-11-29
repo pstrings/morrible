@@ -78,6 +78,32 @@ class TicketView(ui.View):
             except discord.HTTPException as e:
                 return await interaction.response.send_message(f"Failed to create a ticket thread: {e}", ephemeral=True)
 
+            # Add staff to the thread
+            staff_role_ids = [
+                1308969673441677404,  # The Good Witch
+                1309910118703300649,  # The Wicked Witch
+                1365371606234435709,  # Madame Morrible
+                1413637333999419496,  # WickedBot
+                1441805657287430394,  # head mod
+                1309345855618416724,  # moderator
+                1309345688450105396   # trainee staff
+            ]
+            for role_id in staff_role_ids:
+                role = guild.get_role(role_id)
+                if role:
+                    for member in role.members:
+                        try:
+                            await thread.add_user(member)
+                        except Exception:
+                            pass
+            
+            # Add owner to the thread
+            if guild.owner:
+                try:
+                    await thread.add_user(guild.owner)
+                except Exception:
+                    pass
+
             new_ticket = Ticket(
                 guild_id=guild.id,
                 user_id=user.id,
