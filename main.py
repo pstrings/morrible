@@ -39,7 +39,7 @@ class Morrible(commands.AutoShardedBot):
 
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
-        # await self.load_extension("cogs.partnership")
+        await self.load_extension("cogs.partnership")
         await self.load_extension("cogs.reaction_roles")
         await self.load_extension("cogs.ticket")
         # await self.load_extension("cogs.automod")

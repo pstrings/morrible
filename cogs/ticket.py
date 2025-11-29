@@ -3,7 +3,7 @@ from discord import app_commands, Interaction, ui, Embed, Member, User, TextChan
 import discord
 from sqlalchemy.future import select
 from sqlalchemy import update
-from database.tickets_db import TicketChannel, Ticket, TicketLogChannel, async_session
+from database.database import TicketChannel, Ticket, TicketLogChannel, async_session
 from typing import Literal, Optional
 from cogs.moderation import get_highest_role_level, require_role
 
