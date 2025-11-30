@@ -2,7 +2,7 @@ from discord.ext import commands
 from discord import app_commands, Interaction, ui
 import discord
 from sqlalchemy.future import select
-from database.database import TicketChannel, PartnershipTicket, TicketLogChannel, async_session
+from database.database import TicketChannel, PartnershipTicket, PartnershipLogChannel, async_session
 
 
 class OpenTicketButton(ui.View):
@@ -79,12 +79,27 @@ class PartnershipTickets(commands.Cog):
 
         await interaction.response.send_message(f"✅ Ticket channel set to {channel.mention} and UI posted.")
 
-    @app_commands.command(name="closeticket", description="Close the current ticket.")
+    @app_commands.command(name="setpartnerlogchannel", description="Set the channel for partnership logs.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.guild_only()
+    @app_commands.guild_install()
+    async def set_partner_log_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        async with async_session() as session:
+            existing = await session.get(PartnershipLogChannel, interaction.guild.id)
+            if existing:
+                existing.channel_id = channel.id
+            else:
+                session.add(PartnershipLogChannel(
+                    guild_id=interaction.guild.id, channel_id=channel.id))
+            await session.commit()
+        await interaction.response.send_message(f"✅ Partnership log channel set to {channel.mention}.")
+
+    @app_commands.command(name="partnerclose", description="Close the current ticket.")
     @app_commands.describe(server_name="Name of the server", server_link="Invite link to the server", accepted="Whether the partnership was accepted (true/false)", ad_message_id="Message ID of the partner ad (required if accepted)", description="Optional server description")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.guild_only()
     @app_commands.guild_install()
-    async def close_ticket(self, interaction: Interaction, server_name: str, server_link: str, accepted: bool, ad_message_id: str = None, description: str = None):
+    async def partner_close(self, interaction: Interaction, server_name: str, server_link: str, accepted: bool, ad_message_id: str = None, description: str = None):
         channel = interaction.channel
         guild = interaction.guild
 
@@ -134,7 +149,7 @@ class PartnershipTickets(commands.Cog):
                                     value=ad_message_id, inline=False)
 
                 embed.set_footer(text=f"Action taken in {guild.name}")
-                log_config = await session.get(TicketLogChannel, guild.id)
+                log_config = await session.get(PartnershipLogChannel, guild.id)
                 if log_config and log_config.channel_id:
                     log_channel = guild.get_channel(log_config.channel_id)
                     if log_channel and isinstance(log_channel, discord.TextChannel):
@@ -203,7 +218,7 @@ class PartnershipTickets(commands.Cog):
             embed.timestamp = discord.utils.utcnow()
 
             # Send to log channel
-            log_config = await session.get(TicketLogChannel, guild.id)
+            log_config = await session.get(PartnershipLogChannel, guild.id)
             if log_config and log_config.channel_id:
                 log_channel = guild.get_channel(log_config.channel_id)
                 if log_channel and isinstance(log_channel, discord.TextChannel):
@@ -241,7 +256,7 @@ class PartnershipTickets(commands.Cog):
 
             # Try to delete the ad message
             try:
-                log_config = await session.get(TicketLogChannel, guild.id)
+                log_config = await session.get(PartnershipLogChannel, guild.id)
                 if log_config and log_config.channel_id:
                     log_channel = guild.get_channel(log_config.channel_id)
                     if log_channel and isinstance(log_channel, discord.TextChannel):
@@ -286,7 +301,7 @@ class PartnershipTickets(commands.Cog):
 
             for ticket in tickets:
                 try:
-                    log_config = await session.get(TicketLogChannel, member.guild.id)
+                    log_config = await session.get(PartnershipLogChannel, member.guild.id)
                     if not log_config:
                         continue
 

@@ -88,11 +88,11 @@ class ModLogChannel(Base):
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
-# class PartnershipLogChannel(Base):
-#     __tablename__ = "partner_log_channels"
+class PartnershipLogChannel(Base):
+    __tablename__ = "partner_log_channels"
 
-#     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-#     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 async def init_db():
