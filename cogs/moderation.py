@@ -14,10 +14,9 @@ from sqlalchemy import select
 from database.database import async_session, Infraction, ModLogChannel
 
 ROLE_HIERARCHY = {
-    "the good witch": 3,
-    "the wicked witch": 3,
-    "s": 3,
-    "d": 3,
+    "the good witch": 4,
+    "the wicked witch": 4,
+    "head mod": 3,
     "moderator": 2,
     "trainee staff": 1
 }
@@ -312,7 +311,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(member_or_id="The user (mention or user ID) to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(2)
+    @require_role(3)
     async def ban(self, interaction: discord.Interaction, member_or_id: str, *, reason: str, delete_message_days: int = 0):
         """Command to ban members or users from the server."""
         # Parse input to get user ID
@@ -381,7 +380,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to unban", reason="Reason for the unban")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def unban(self, interaction: discord.Interaction, user: discord.User, *, reason: str):
         """This method will unban a user."""
         # Prevent self unban
@@ -415,7 +414,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="listban", description="List all the banned users")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(1)
+    @require_role(3)
     async def list_ban(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -477,7 +476,7 @@ class Moderation(commands.Cog):
                     moderator_id=interaction.user.id,
                     infraction_type="timeout",
                     reason=reason,
-                    duration_seconds=until
+                    duration_seconds=int(delta.total_seconds())
                 )
                 await send_mod_log(self.bot, interaction.guild, "Timeout", interaction.user, member, reason, duration=duration)
 
@@ -532,7 +531,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(amount="The number of messages to delete (1-100)", user="(Optional) Mention or user ID to delete only messages from this user")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(2)
     async def purge(self, interaction: discord.Interaction, amount: int, user: str = None):
         """Deletes a specified number of recent messages, optionally only from a given user."""
 
@@ -686,11 +685,9 @@ class Moderation(commands.Cog):
 
         if not muted_role:
             return await interaction.response.send_message("The forces of silence have left no trace. There is no muting to undo.", ephemeral=True)
-            return
 
         if muted_role not in member.roles:
             return await interaction.response.send_message(f"{member.mention} is not among the silent ranks.", ephemeral=True)
-            return
 
         try:
             await member.remove_roles(muted_role)
@@ -755,7 +752,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to clear infractions for.")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def clearinfractions(self, interaction: discord.Interaction, user: discord.Member):
         """To clear all infractions by a user."""
         async with async_session() as session:
@@ -783,7 +780,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(channel="Channel for moderation logs")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def set_mod_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Set channel for moderation logs"""
 
