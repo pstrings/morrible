@@ -1,5 +1,5 @@
 from discord.ext import commands
-from discord import app_commands, Interaction, ui
+from discord import app_commands, Interaction, ui, TextChannel
 import discord
 from sqlalchemy.future import select
 from database.database import TicketChannel, PartnershipTicket, PartnershipLogChannel, async_session
@@ -14,6 +14,9 @@ class OpenTicketButton(ui.View):
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         guild = interaction.guild
+
+        if guild is None:
+            return await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
 
         async with async_session() as session:
             config = await session.get(TicketChannel, guild.id)
@@ -30,13 +33,55 @@ class OpenTicketButton(ui.View):
 
             existing_ticket = result.scalar()
             if existing_ticket:
-                return await interaction.response.send_message("⚠️ You already have an open ticket.", ephemeral=True)
+                return await interaction.response.send_message("Patience, my dear. You already have a ticket open. One simply cannot have *all* of my attention at once.", ephemeral=True)
 
-            base_channel = guild.get_channel(config.channel_id)
-            if not base_channel:
-                return await interaction.response.send_message("⚠️ Ticket base channel not found.", ephemeral=True)
+            base_channel = guild.get_channel(int(config.channel_id))
+            if not base_channel or not isinstance(base_channel, TextChannel):
+                return await interaction.response.send_message("The designated place for such... *requests*... has vanished or is invalid. How utterly bizarre.", ephemeral=True)
 
-            thread = await base_channel.create_thread(name=f"ticket-{user.name}", type=discord.ChannelType.private_thread, invitable=False)
+            # Check bot permissions for creating private threads
+            bot_member = guild.get_member(self.bot.user.id) or guild.me
+            if bot_member is None:
+                try:
+                    bot_member = await guild.fetch_member(self.bot.user.id)
+                except Exception:
+                    bot_member = None
+
+            if bot_member:
+                perms = base_channel.permissions_for(bot_member)
+                if not (perms.create_private_threads or perms.manage_threads):
+                    return await interaction.response.send_message("I lack permissions to create private threads in the configured channel. Please grant `Create Private Threads` or `Manage Threads`.", ephemeral=True)
+            try:
+                thread = await base_channel.create_thread(name=f"ticket-{user.name}", type=discord.ChannelType.private_thread, invitable=False)
+            except discord.Forbidden:
+                return await interaction.response.send_message("I cannot create a thread in the configured channel. Please check my permissions.", ephemeral=True)
+            except discord.HTTPException as e:
+                return await interaction.response.send_message(f"Failed to create a ticket thread: {e}", ephemeral=True)
+
+            # Add staff to the thread
+            staff_role_ids = [
+                1308969673441677404,  # The Good Witch
+                1309910118703300649,  # The Wicked Witch
+                1365371606234435709,  # Madame Morrible
+                1413637333999419496,  # WickedBot
+                1441805657287430394,  # head mod
+                1309345855618416724,  # moderator
+            ]
+            for role_id in staff_role_ids:
+                role = guild.get_role(role_id)
+                if role:
+                    for member in role.members:
+                        try:
+                            await thread.add_user(member)
+                        except Exception:
+                            pass
+
+            # Add owner to the thread
+            if guild.owner:
+                try:
+                    await thread.add_user(guild.owner)
+                except Exception:
+                    pass
 
             new_ticket = PartnershipTicket(
                 guild_id=guild.id,
@@ -44,7 +89,12 @@ class OpenTicketButton(ui.View):
                 channel_id=thread.id
             )
             session.add(new_ticket)
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                await thread.delete()
+                return await interaction.response.send_message("Patience, my dear. You already have a ticket open. One simply cannot have *all* of my attention at once.", ephemeral=True)
 
             await thread.send(f"🎟️ {user.mention}, thank you for your interest in partnering. A staff member will respond shortly.")
             await interaction.response.send_message(f"✅ Your ticket has been created: {thread.mention}", ephemeral=True)

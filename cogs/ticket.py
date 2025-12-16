@@ -86,7 +86,6 @@ class TicketView(ui.View):
                 1413637333999419496,  # WickedBot
                 1441805657287430394,  # head mod
                 1309345855618416724,  # moderator
-                1309345688450105396   # trainee staff
             ]
             for role_id in staff_role_ids:
                 role = guild.get_role(role_id)
@@ -96,7 +95,7 @@ class TicketView(ui.View):
                             await thread.add_user(member)
                         except Exception:
                             pass
-            
+
             # Add owner to the thread
             if guild.owner:
                 try:
