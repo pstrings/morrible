@@ -3,7 +3,7 @@ from discord import app_commands, Interaction, ui, Embed, Member, User, TextChan
 import discord
 from sqlalchemy.future import select
 from sqlalchemy import update
-from database.database import TicketChannel, Ticket, TicketLogChannel, async_session
+from database.tickets_db import TicketChannel, Ticket, TicketLogChannel, async_session
 from typing import Literal, Optional
 from cogs.moderation import get_highest_role_level, require_role
 
@@ -78,31 +78,6 @@ class TicketView(ui.View):
             except discord.HTTPException as e:
                 return await interaction.response.send_message(f"Failed to create a ticket thread: {e}", ephemeral=True)
 
-            # Add staff to the thread
-            staff_role_ids = [
-                1308969673441677404,  # The Good Witch
-                1309910118703300649,  # The Wicked Witch
-                1365371606234435709,  # Madame Morrible
-                1413637333999419496,  # WickedBot
-                1441805657287430394,  # head mod
-                1309345855618416724,  # moderator
-            ]
-            for role_id in staff_role_ids:
-                role = guild.get_role(role_id)
-                if role:
-                    for member in role.members:
-                        try:
-                            await thread.add_user(member)
-                        except Exception:
-                            pass
-
-            # Add owner to the thread
-            if guild.owner:
-                try:
-                    await thread.add_user(guild.owner)
-                except Exception:
-                    pass
-
             new_ticket = Ticket(
                 guild_id=guild.id,
                 user_id=user.id,
@@ -132,9 +107,9 @@ class TicketView(ui.View):
     async def report_button(self, interaction: Interaction, button: ui.Button):
         await self.create_ticket_thread(interaction, "Report")
 
-    # @ui.button(label="Partnership", style=ButtonStyle.success, custom_id="ticket_partnership")
-    # async def partnership_button(self, interaction: Interaction, button: ui.Button):
-    #     await self.create_ticket_thread(interaction, "Partnership")
+    @ui.button(label="Partnership", style=ButtonStyle.success, custom_id="ticket_partnership")
+    async def partnership_button(self, interaction: Interaction, button: ui.Button):
+        await self.create_ticket_thread(interaction, "Partnership")
 
 
 class Tickets(commands.Cog):
@@ -162,7 +137,7 @@ class Tickets(commands.Cog):
             await session.commit()
 
         morrible_message = (
-            "Such... *ambition*. If you have a request, a suggestion, or a... *grievance*, you may press the appropriate button. Do not dally.")
+            "Such... *ambition*. If you have a request, a suggestion, a... *grievance*, or even a partnership to propose, you may press the appropriate button. Do not dally.")
 
         # Respond to interaction first to avoid timeout
         await interaction.response.defer(ephemeral=True)
@@ -187,7 +162,7 @@ class Tickets(commands.Cog):
         if guild is None:
             return await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
 
-        if not isinstance(channel, Thread) or not channel.name.startswith(("Support-", "Suggestion-", "Report-")):
+        if not isinstance(channel, Thread) or not channel.name.startswith(("Support-", "Suggestion-", "Report-", "Partnership-")):
             return await interaction.response.send_message("My dear, you are in the wrong... *venue*. This is not a place for such commands.", ephemeral=True)
 
         async with async_session() as session:
@@ -204,42 +179,42 @@ class Tickets(commands.Cog):
                 return await interaction.response.send_message("The matter is already concluded, or perhaps it was never a matter at all. The ticket is closed.", ephemeral=True)
 
             # Partnership Ticket
-            # if ticket.ticket_type == "Partnership":
-            #     if accepted and not ad_message_id:
-            #         return await interaction.response.send_message("One must follow the proper... *etiquette*. An accepted partnership requires an ad message ID.", ephemeral=True)
+            if ticket.ticket_type == "Partnership":
+                if accepted and not ad_message_id:
+                    return await interaction.response.send_message("One must follow the proper... *etiquette*. An accepted partnership requires an ad message ID.", ephemeral=True)
 
-            #     # Update ticket status using raw UPDATE to avoid constraint issues
-            #     update_stmt = update(Ticket).where(Ticket.id == ticket.id).values(
-            #         status="closed",
-            #         closed_at=discord.utils.utcnow(),
-            #         ad_message_id=int(
-            #             ad_message_id) if accepted and ad_message_id else None
-            #     )
-            #     await session.execute(update_stmt)
-            #     await session.commit()
+                # Update ticket status using raw UPDATE to avoid constraint issues
+                update_stmt = update(Ticket).where(Ticket.id == ticket.id).values(
+                    status="closed",
+                    closed_at=discord.utils.utcnow(),
+                    ad_message_id=int(
+                        ad_message_id) if accepted and ad_message_id else None
+                )
+                await session.execute(update_stmt)
+                await session.commit()
 
-            #     user = await _get_member_safe(guild, ticket.user_id)
-            #     closer = interaction.user
+                user = await _get_member_safe(guild, ticket.user_id)
+                closer = interaction.user
 
-            #     embed = Embed(
-            #         title="A Partnership Concluded",
-            #         description=f"**Status:** {'Accepted, with *great* potential' if accepted else 'Rejected, a *pity*'}",
-            #         color=discord.Color.purple()
-            #     )
-            #     embed.add_field(
-            #         name="Petitioner", value=user.mention if user else f"<@{ticket.user_id}>", inline=True)
-            #     embed.add_field(name="Adjudicator",
-            #                     value=closer.mention, inline=True)
-            #     embed.add_field(name="Server Name",
-            #                     value=server_name, inline=False)
-            #     embed.add_field(name="Server Link",
-            #                     value=server_link, inline=False)
-            #     if description:
-            #         embed.add_field(name="Server Description",
-            #                         value=description, inline=False)
-            #     if accepted and ad_message_id:
-            #         embed.add_field(name="Ad Message ID",
-            #                         value=ad_message_id, inline=False)
+                embed = Embed(
+                    title="A Partnership Concluded",
+                    description=f"**Status:** {'Accepted, with *great* potential' if accepted else 'Rejected, a *pity*'}",
+                    color=discord.Color.purple()
+                )
+                embed.add_field(
+                    name="Petitioner", value=user.mention if user else f"<@{ticket.user_id}>", inline=True)
+                embed.add_field(name="Adjudicator",
+                                value=closer.mention, inline=True)
+                embed.add_field(name="Server Name",
+                                value=server_name, inline=False)
+                embed.add_field(name="Server Link",
+                                value=server_link, inline=False)
+                if description:
+                    embed.add_field(name="Server Description",
+                                    value=description, inline=False)
+                if accepted and ad_message_id:
+                    embed.add_field(name="Ad Message ID",
+                                    value=ad_message_id, inline=False)
 
             # Report Ticket
             elif ticket.ticket_type == "Report":

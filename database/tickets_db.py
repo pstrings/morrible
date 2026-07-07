@@ -3,13 +3,13 @@
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from sqlalchemy import Integer, BigInteger, String, DateTime, Text, UniqueConstraint
+from sqlalchemy import Integer, BigInteger, String, DateTime
 from sqlalchemy.sql import func
 
-DATABASE_URL = "sqlite+aiosqlite:///./morrible.db"
+TICKETS_DATABASE_URL = "sqlite+aiosqlite:///./tickets.db"
 
 Base = declarative_base()
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(TICKETS_DATABASE_URL, echo=False)
 
 # Use async_sessionmaker instead of sessionmaker for async support
 async_session = async_sessionmaker(
@@ -17,23 +17,8 @@ async_session = async_sessionmaker(
 )
 
 
-class Infraction(Base):
-    """Infraction Class"""
-
-    __tablename__ = "infractions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    moderator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    infraction_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    reason: Mapped[str] = mapped_column(String(500), nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
-    duration_seconds: Mapped[int | None] = mapped_column(
-        Integer, nullable=True)
-
-
 class TicketChannel(Base):
+    """Configuration for which channel tickets are created in"""
     __tablename__ = "ticket_channels"
 
     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -41,6 +26,7 @@ class TicketChannel(Base):
 
 
 class Ticket(Base):
+    """Generic ticket supporting multiple types: Support, Suggestion, Report, Partnership"""
     __tablename__ = "tickets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -57,40 +43,20 @@ class Ticket(Base):
         BigInteger, nullable=True)
 
 
-class ModLogChannel(Base):
-    __tablename__ = "mod_log_channels"
-
-    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-
-
 class TicketLogChannel(Base):
+    """Configuration for where ticket close logs are sent"""
     __tablename__ = "ticket_log_channels"
 
     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
-class MemberLogChannel(Base):
-    __tablename__ = "member_log_channels"
-
-    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-
-
-class ExcludedChannel(Base):
-    __tablename__ = "excluded_channels"
-
-    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-
-
-async def init_db():
-    """Initialize Database"""
+async def init_tickets_db():
+    """Initialize Tickets Database"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def close_db():
-    """Close Database"""
+async def close_tickets_db():
+    """Close Tickets Database"""
     await engine.dispose()

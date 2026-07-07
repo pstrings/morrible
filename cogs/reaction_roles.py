@@ -47,12 +47,12 @@ class ReactionRoles(commands.Cog):
         try:
             msg_id = int(message_id)
         except ValueError:
-            return await interaction.followup.send("❌ Invalid message ID.", ephemeral=True)
+            return await interaction.followup.send("Oh, my dear, that's not a message ID. That's just... gibberish.", ephemeral=True)
 
         try:
             message = await interaction.channel.fetch_message(msg_id)
         except (discord.NotFound, discord.Forbidden):
-            return await interaction.followup.send("❌ Could not fetch the message.", ephemeral=True)
+            return await interaction.followup.send("The message you seek has... vanished. How utterly inconvenient.", ephemeral=True)
 
         emoji_role_map = {}
         for pair in pairs.split(","):
@@ -63,20 +63,20 @@ class ReactionRoles(commands.Cog):
                 role_id = int(role_mention.strip("<@&>"))
                 emoji_role_map[emoji] = role_id
             except Exception:
-                return await interaction.followup.send(f"❌ Invalid pair format: `{pair}`", ephemeral=True)
+                return await interaction.followup.send(f"My dear, this simply will not do. The format for `{pair}` is... an abomination.", ephemeral=True)
 
         for emoji in emoji_role_map:
             try:
                 await message.add_reaction(emoji)
             except discord.HTTPException:
-                await interaction.followup.send(f"⚠️ Could not react with {emoji}.", ephemeral=True)
+                await interaction.followup.send(f"I'm afraid I can't be seen with... *that* emoji ({emoji}). It's simply not in my vocabulary.", ephemeral=True)
 
         if msg_id not in self.reaction_role_messages:
             self.reaction_role_messages[msg_id] = {}
         self.reaction_role_messages[msg_id].update(emoji_role_map)
         save_reaction_roles(self.reaction_role_messages)
 
-        await interaction.followup.send(f"✅ Reaction roles updated for message `{msg_id}`.", ephemeral=True)
+        await interaction.followup.send(f"The roles have been assigned for message `{msg_id}`. Let's hope the little dears are... grateful.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):

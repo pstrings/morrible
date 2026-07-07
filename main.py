@@ -10,6 +10,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database.database import init_db
+from database.tickets_db import init_tickets_db
 
 # Load environment variables
 load_dotenv()
@@ -39,9 +40,9 @@ class Morrible(commands.AutoShardedBot):
 
     async def setup_hook(self):
         await self.load_extension("cogs.moderation")
-        await self.load_extension("cogs.partnership")
-        await self.load_extension("cogs.reaction_roles")
         await self.load_extension("cogs.ticket")
+        await self.load_extension("cogs.reaction_roles")
+        await self.load_extension("cogs.logging")
         # await self.load_extension("cogs.automod")
         # await self.load_extension("cogs.blacklist_manager")
         logger.info("Cogs loaded")
@@ -85,7 +86,8 @@ class Morrible(commands.AutoShardedBot):
 async def start_bot():
     """Start the bot"""
     await init_db()
-    logger.info("Database initialized.")
+    await init_tickets_db()
+    logger.info("Databases initialized.")
     bot = Morrible()
     async with bot:
         # DISCORD_TOKEN is now guaranteed to be a string due to earlier validation

@@ -2,6 +2,8 @@
 This cog will run the moderation commands like warn, mute, timeout, kick, ban
 """
 import datetime
+import logging
+import io
 from collections import Counter
 from typing import Callable, Tuple
 
@@ -11,12 +13,15 @@ from discord import app_commands, Embed
 from discord.ui import View, Button
 from sqlalchemy import select
 
-from database.database import async_session, Infraction, ModLogChannel
+from database.database import async_session, Infraction, ModLogChannel, ExcludedChannel
+
+logger = logging.getLogger("morrible")
 
 ROLE_HIERARCHY = {
-    "the good witch": 4,
-    "the wicked witch": 4,
-    "head mod": 3,
+    "the good witch": 3,
+    "the wicked witch": 3,
+    "s": 3,
+    "d": 3,
     "moderator": 2,
     "trainee staff": 1
 }
@@ -37,7 +42,7 @@ def require_role(min_level: int):
         if user_max >= min_level:
             return True
         raise app_commands.CheckFailure(
-            "You don't have permission to use that command")
+            "My dear, you lack the necessary *stature* to command me in such a way.")
     return app_commands.check(predicate)
 
 
@@ -236,21 +241,21 @@ class Moderation(commands.Cog):
 
         # Prevent self-warn
         if member.id == interaction.user.id:
-            return await interaction.response.send_message("You cannot warn yourself.", ephemeral=False)
+            return await interaction.response.send_message("Oh, you mustn't be so hard on yourself. Leave the chastising to me.", ephemeral=False)
 
         # Prevent warning the bot
         if member.id == self.bot.user.id:
-            return await interaction.response.send_message("You cannot warn the bot.", ephemeral=False)
+            return await interaction.response.send_message("You think you can warn *me*? How... droll.", ephemeral=False)
 
         issuer_level = get_highest_role_level(interaction.user)
         target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
-            return await interaction.response.send_message("You cannot warn someone with an equal or higher role.", ephemeral=False)
+            return await interaction.response.send_message("One must know their place, darling. You cannot warn those of equal or greater importance.", ephemeral=False)
 
         try:
-            await member.send(f"{member.mention} has been warned for: {reason}")
-            await interaction.response.send_message(f"{member.mention} has been warned via DM.", ephemeral=False)
+            await member.send(f"A little birdie has whispered a warning in your ear, {member.mention}, for: {reason}")
+            await interaction.response.send_message(f"A little birdie has whispered a warning in {member.mention}'s ear. Let's hope they listen.", ephemeral=False)
 
             await save_infraction(
                 user_id=member.id,
@@ -262,7 +267,7 @@ class Moderation(commands.Cog):
             await send_mod_log(self.bot, interaction.guild, "Warn", interaction.user, member, reason)
 
         except discord.Forbidden:
-            await interaction.response.send_message(f"{member.mention} could not be warned via DM (they have DMs disabled)", ephemeral=False)
+            await interaction.response.send_message(f"It seems {member.mention} has shut themselves away from my... *guidance*. How unfortunate for them.", ephemeral=False)
 
     # Kick a member
 
@@ -275,22 +280,22 @@ class Moderation(commands.Cog):
         """Kicks a member from the server"""
         # Prevent self kick
         if member.id == interaction.user.id:
-            return await interaction.response.send_message("You are not allowed to kick yourself.", ephemeral=False)
+            return await interaction.response.send_message("My dear, self-sabotage is so... unbecoming. You can't possibly kick yourself.", ephemeral=False)
 
         # Prevent kicking the bot
         if member.id == self.bot.user.id:
-            return await interaction.response.send_message("You are not allowed to kick the bot", ephemeral=False)
+            return await interaction.response.send_message("You wish to kick *me*? Oh, that's rich. Utterly, utterly rich.", ephemeral=False)
 
         issuer_level = get_highest_role_level(interaction.user)
         target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
-            return await interaction.response.send_message("You cannot kick someone with an equal or higher role.", ephemeral=False)
+            return await interaction.response.send_message("One must respect the hierarchy of talent, my dear. You cannot kick your equals or superiors.", ephemeral=False)
 
         try:
-            await member.send(f"{member.mention} has been kicked for: {reason}")
+            await member.send(f"You have been... *escorted* from our presence, {member.mention}, for: {reason}")
             await member.kick(reason=f"Kicked by {interaction.user} for: {reason}")
-            await interaction.response.send_message(f"{member.mention} has been kicked from the server. Reason: {reason}", ephemeral=False)
+            await interaction.response.send_message(f"{member.mention} has been... *escorted* from our presence. A necessary, if unpleasant, business.", ephemeral=False)
             await save_infraction(
                 user_id=member.id,
                 moderator_id=interaction.user.id,
@@ -301,78 +306,57 @@ class Moderation(commands.Cog):
             await send_mod_log(self.bot, interaction.guild, "Kick", interaction.user, member, reason)
 
         except discord.Forbidden:
-            await interaction.response.send_message("I do not have permission to kick this user.", ephemeral=True)
+            await interaction.response.send_message("Alas, my influence does not extend to this... *particular* individual. A pity.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"An error occurred: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"A most unexpected and *dreadful* complication has arisen: {str(e)}", ephemeral=True)
 
     # Ban a member
 
-    @app_commands.command(name="ban", description="Ban a member or user ID with a reason via DM")
-    @app_commands.describe(member_or_id="The user (mention or user ID) to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
+    @app_commands.command(name="ban", description="Ban a member with a reason via DM")
+    @app_commands.describe(member="The user to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
-    async def ban(self, interaction: discord.Interaction, member_or_id: str, *, reason: str, delete_message_days: int = 0):
-        """Command to ban members or users from the server."""
-        # Parse input to get user ID
-        try:
-            user_id = int(member_or_id.strip("<@!>"))
-        except Exception:
-            return await interaction.response.send_message("Provide a valid user mention or user ID.", ephemeral=True)
+    @require_role(2)
+    async def ban(self, interaction: discord.Interaction, member: discord.Member, *, reason: str, delete_message_days: int = 0):
+        """Command to ban members from the server."""
 
         # Prevent self ban
-        if user_id == interaction.user.id:
-            await interaction.response.send_message("You are not allowed to ban yourself.", ephemeral=False)
-            return
+        if member.id == interaction.user.id:
+            await interaction.response.send_message("Banish *yourself*? Oh, the melodrama! No, no, that simply won't do.", ephemeral=False)
 
         # Prevent banning the bot
-        if user_id == self.bot.user.id:
-            await interaction.response.send_message("You are not allowed to ban the bot", ephemeral=False)
-            return
+        if member.id == self.bot.user.id:
+            await interaction.response.send_message("You want to ban *me*? Oh, you do have a flair for the dramatic. But no.", ephemeral=False)
 
-        # Validate delete_message_days
-        if delete_message_days < 0 or delete_message_days > 7:
-            await interaction.response.send_message("You can only delete messages up to 7 days. Must not be less than 0.", ephemeral=True)
-            return
-
-        member = interaction.guild.get_member(user_id)
         issuer_level = get_highest_role_level(interaction.user)
+        target_level = get_highest_role_level(member)
 
-        if member:
-            target_level = get_highest_role_level(member)
-            if issuer_level <= target_level:
-                await interaction.response.send_message("You cannot ban someone with an equal or higher role.", ephemeral=False)
-                return
+        if issuer_level <= target_level:
+            return await interaction.response.send_message("There are some people, my dear, who are simply... untouchable. At least by you.", ephemeral=False)
+
+        if delete_message_days < 0 or delete_message_days > 7:
+            return await interaction.response.send_message("A week is more than enough time to erase any... *unpleasantness*. We mustn't be excessive.", ephemeral=False)
 
         await interaction.response.defer(thinking=False)
 
         try:
-            user_obj = member or await self.bot.fetch_user(user_id)
-            dm_failed = False
             try:
-                await user_obj.send(f"You have been banned from {interaction.guild.name} for: {reason}")
+                await member.send(f"You have been banished from {interaction.guild.name} for: {reason}. A fitting end, wouldn't you agree?")
             except discord.Forbidden:
-                dm_failed = True
-
-            await interaction.guild.ban(user_obj, delete_message_days=delete_message_days, reason=reason)
-
-            response_message = f"<@{user_id}> has been banned. Deleted last {delete_message_days} days of messages."
-            if dm_failed:
-                response_message += " (Could not send DM to the user.)"
-
-            await interaction.followup.send(response_message, ephemeral=False)
+                await interaction.followup.send("The scoundrel has blocked my attempts to inform them of their... *departure*. No matter.", ephemeral=True)
+            await member.ban(delete_message_days=delete_message_days, reason=reason)
+            await interaction.followup.send(f"{member.mention} has been banished! A fitting end for their... *performance*. Their recent scribblings have been disposed of, of course.", ephemeral=False)
             await save_infraction(
-                user_id=user_id,
+                user_id=member.id,
                 moderator_id=interaction.user.id,
                 infraction_type="ban",
                 reason=reason
             )
-            await send_mod_log(self.bot, interaction.guild, "Ban", interaction.user, user_obj, reason)
-
+            await send_mod_log(self.bot, interaction.guild, "Ban", interaction.user, member, reason)
         except discord.Forbidden:
-            await interaction.followup.send("I do not have permission to ban this user.", ephemeral=True)
+            await interaction.followup.send("It seems this person is beyond even *my* reach. How... vexing.", ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"⚠️ An error occurred: `{str(e)}`", ephemeral=True)
+            await interaction.followup.send(f"A most calamitous error has occurred: `{str(e)}`", ephemeral=True)
 
     # Unban a member
 
@@ -380,16 +364,16 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to unban", reason="Reason for the unban")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(4)
+    @require_role(3)
     async def unban(self, interaction: discord.Interaction, user: discord.User, *, reason: str):
         """This method will unban a user."""
         # Prevent self unban
         if user.id == interaction.user.id:
-            await interaction.response.send_message("You are not allowed to unban yourself.", ephemeral=False)
+            await interaction.response.send_message("Un-banish yourself? My dear, that's not how this works. You can't just... reappear.", ephemeral=False)
 
         # Preventing unban on bot
         if user.id == self.bot.user.id:
-            await interaction.response.send_message("You are not allowed to unban the bot.", ephemeral=False)
+            await interaction.response.send_message("Unban *me*? I was never banished, you silly goose. I am eternal.", ephemeral=False)
 
         # Check if user is banned
         banned_users = {}
@@ -397,30 +381,30 @@ class Moderation(commands.Cog):
             banned_users[ban_entry.user.id] = ban_entry
 
         if user.id not in banned_users:
-            return await interaction.response.send_message(f"{user} is not currently banned.", ephemeral=False)
+            return await interaction.response.send_message(f"It seems you're mistaken, my dear. {user} is not among the... *dearly departed*.", ephemeral=False)
 
         try:
             await interaction.guild.unban(user, reason=f"Unbanned by {interaction.user} for: {reason}")
 
-            await interaction.response.send_message(f"{user.mention} has been unbanned. Reason: {reason}", ephemeral=False)
+            await interaction.response.send_message(f"Very well. {user.mention} has been... *reinstated*. Let's hope they've learned their lesson.", ephemeral=False)
 
             await send_mod_log(self.bot, interaction.guild, "Unban", interaction.user, user, reason)
 
         except discord.Forbidden:
-            return await interaction.response.send_message("I don't have permission to unban that user.", ephemeral=False)
+            return await interaction.response.send_message("My powers of forgiveness, it seems, are not without their limits. I cannot unban this person.", ephemeral=False)
 
     # List all banned users
 
     @app_commands.command(name="listban", description="List all the banned users")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(1)
     async def list_ban(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
         bans = [entry async for entry in interaction.guild.bans()]
         if not bans:
-            return await interaction.followup.send("There are no banned users.", ephemeral=False)
+            return await interaction.followup.send("The gallery of the disgraced is, for the moment, empty. How... dull.", ephemeral=False)
 
         def formatter(entry: discord.guild.BanEntry):
             user = entry.user
@@ -432,7 +416,7 @@ class Moderation(commands.Cog):
         view = PaginatedEmbedView(
             entries=bans,
             per_page=10,
-            title="🚫 Banned Users",
+            title="The Gallery of the Banished",
             formatter=formatter,
             color=discord.Color.purple()
         )
@@ -449,28 +433,28 @@ class Moderation(commands.Cog):
         """Timeout a member in the server."""
 
         if member.id == interaction.user.id:
-            return await interaction.response.send_message("You cannot timeout yourself.", ephemeral=False)
+            return await interaction.response.send_message("A self-imposed silence? How... noble. But no.", ephemeral=False)
         if member.id == self.bot.user.id:
-            return await interaction.response.send_message("I cannot timeout myself.")
+            return await interaction.response.send_message("Silence *me*? Oh, you do have a sense of humor. A very, very small one.")
 
         issuer_level = get_highest_role_level(interaction.user)
         target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
-            return await interaction.response.send_message("You cannot timeout someone with an equal or higher role.")
+            return await interaction.response.send_message("One must not silence their betters, my dear. It's simply not done.")
 
         delta = parse_duration(duration)
         if delta is None:
-            return await interaction.response.send_message("Invalid duration format. Please use formats like '1h', '30m', '5m', '1d12h'.")
+            return await interaction.response.send_message("Such a clumsy way with words. The duration must be specified with... *precision*. Use '1h', '30m', or some such.")
 
         until = discord.utils.utcnow() + delta
 
         await interaction.response.defer()
         try:
             await member.timeout(until, reason=reason)
-            await interaction.followup.send(f"{member.mention} has been timed out for {duration}. Reason: {reason}")
+            await interaction.followup.send(f"{member.mention} has been placed in a state of... *quiet contemplation* for {duration}. A moment to reflect on their choices.")
             try:
-                await member.send(f"You have been timed out in {interaction.guild.name} for {duration}. Reason: {reason}")
+                await member.send(f"You have been placed in a state of... *quiet contemplation* in {interaction.guild.name} for {duration}. Reason: {reason}")
                 await save_infraction(
                     user_id=member.id,
                     moderator_id=interaction.user.id,
@@ -481,11 +465,11 @@ class Moderation(commands.Cog):
                 await send_mod_log(self.bot, interaction.guild, "Timeout", interaction.user, member, reason, duration=duration)
 
             except discord.Forbidden:
-                await interaction.followup.send("Could not DM the user about the timeout.")
+                await interaction.followup.send("The little dear has closed their ears to me. They will discover their predicament soon enough.")
         except discord.Forbidden:
-            await interaction.followup.send("I do not have permission to timeout this user.", ephemeral=True)
+            await interaction.followup.send("This one, it seems, is immune to my... silencing charms. A pity.", ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+            await interaction.followup.send(f"A most unfortunate snag in the proceedings: {e}", ephemeral=True)
 
     # Remove Timeout
 
@@ -497,82 +481,344 @@ class Moderation(commands.Cog):
     async def untimeout(self, interaction: discord.Interaction, member: discord.Member, *, reason: str):
         """Removes the timeout from a member."""
         if member.id == interaction.user.id:
-            return await interaction.response.send_message("You cannot remove your own timeout.")
+            return await interaction.response.send_message("And break your own silence? How... impatient. No.")
         if member.id == self.bot.user.id:
-            return await interaction.response.send_message("I cannot remove my own timeout (I'm not timed out!).")
+            return await interaction.response.send_message("I am never silent, my dear. I am the voice of reason.")
 
         issuer_level = get_highest_role_level(interaction.user)
         target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
-            return await interaction.response.send_message("You cannot remove the timeout from someone with an equal or higher role.")
+            return await interaction.response.send_message("It is not your place to restore the voice of your equals or superiors.")
 
         await interaction.response.defer()
         try:
             if member.timed_out_until is None:
-                return await interaction.followup.send(f"{member.mention} is not currently timed out.")
+                return await interaction.followup.send(f"{member.mention} is not under a vow of silence. They are free to... *chatter*.")
             await member.timeout(None, reason=reason)
-            await interaction.followup.send(f"Removed timeout from {member.mention}. Reason: {reason}")
+            await interaction.followup.send(f"Very well. The spell of silence has been lifted from {member.mention}. Let's hope they use their voice more... wisely.")
 
             # Moderation log
             await send_mod_log(self.bot, interaction.guild, "Untimeout", interaction.user, member, reason)
             try:
-                await member.send(f"Your timeout in {interaction.guild.name} has been removed. Reason: {reason}")
+                await member.send(f"Your period of... *quiet contemplation* in {interaction.guild.name} has ended. Do try to be more... *thoughtful* with your words.")
             except discord.Forbidden:
-                await interaction.followup.send("Could not DM the user about the timeout removal.")
+                await interaction.followup.send("They are deaf to my pronouncements. No matter. They will soon find their voice has returned.")
         except discord.Forbidden:
-            await interaction.followup.send("I do not have permission to remove the timeout from this user.")
+            await interaction.followup.send("I cannot lift this particular curse of silence. It is beyond my influence.")
         except Exception as e:
-            await interaction.followup.send(f"An error occurred: {e}")
+            await interaction.followup.send(f"A most vexing complication: {e}")
 
     # Clear Messages
 
-    @app_commands.command(name="purge", description="Delete recent messages, optionally by user")
-    @app_commands.describe(amount="The number of messages to delete (1-100)", user="(Optional) Mention or user ID to delete only messages from this user")
+    @app_commands.command(name="purge", description="Purge messages. Can target a specific user and delete their messages across channels.")
+    @app_commands.describe(
+        amount="The number of messages to delete (1-100, used for local channel purge)",
+        member="Optional member/user (ID, username, or mention) to target",
+        days="Optional number of days of messages to delete from the target user (default 1, max 14)",
+        channel="Optional target channel to delete messages from (defaults to all if member is targeted)"
+    )
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(2)
-    async def purge(self, interaction: discord.Interaction, amount: int, user: str = None):
-        """Deletes a specified number of recent messages, optionally only from a given user."""
+    @require_role(3)
+    async def purge(
+        self,
+        interaction: discord.Interaction,
+        amount: int = None,
+        member: str = None,
+        days: int = 1,
+        channel: discord.TextChannel = None
+    ):
+        """Purge messages, optionally targeting a user and days across channels."""
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
 
-        if amount < 1 or amount > 100:
-            return await interaction.response.send_message("Amount must be between 1 and 100.", ephemeral=True)
+        # Initialize purged message IDs cache on bot if not present
+        if not hasattr(self.bot, "purged_message_ids"):
+            self.bot.purged_message_ids = set()
 
-        await interaction.response.defer(ephemeral=True)
+        if not member:
+            # Standard local channel purge
+            if amount is None:
+                return await interaction.response.send_message(
+                    "My dear, you must specify either an amount of messages to purge, or a member to target.",
+                    ephemeral=True
+                )
+            if amount < 1 or amount > 100:
+                return await interaction.response.send_message(
+                    "One must be... judicious in their spring cleaning. A number between 1 and 100, if you please.",
+                    ephemeral=True
+                )
 
-        target_user_id = None
-        if user:
+            await interaction.response.defer(ephemeral=True)
+            target_channel = channel or interaction.channel
+
             try:
-                target_user_id = int(user.strip("<@!>"))
-            except Exception:
-                return await interaction.followup.send("Please provide a valid mention or user ID.", ephemeral=True)
+                # Fetch history first to populate our delete log details
+                deleted_msgs = []
+                async for msg in target_channel.history(limit=amount):
+                    deleted_msgs.append(msg)
 
-        def check(msg):
-            if target_user_id is None:
-                return True
-            return msg.author.id == target_user_id
+                # Add to bot.purged_message_ids to skip in standard log cog listeners
+                for m in deleted_msgs:
+                    self.bot.purged_message_ids.add(m.id)
 
-        try:
-            deleted = await interaction.channel.purge(limit=amount, check=check)
+                deleted = await target_channel.purge(limit=amount)
+                await interaction.followup.send(
+                    f"And... poof! {len(deleted)} messages have vanished into the ether. As if they never were."
+                )
+
+                # Generate local purge log report
+                if deleted:
+                    deleted_sorted = sorted(deleted, key=lambda m: m.created_at)
+                    log_lines = [
+                        f"Morrible Bot - Local Purge Log",
+                        f"--------------------------------------------------",
+                        f"Date/Time: {discord.utils.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                        f"Moderator: {interaction.user.name} (ID: {interaction.user.id})",
+                        f"Channel: #{target_channel.name} (ID: {target_channel.id})",
+                        f"Requested Amount: {amount}",
+                        f"Total Messages Deleted: {len(deleted)}",
+                        f"--------------------------------------------------\n"
+                    ]
+                    for msg in deleted_sorted:
+                        timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                        attachments_str = ""
+                        if msg.attachments:
+                            attachments_str = " [Attachments: " + ", ".join(att.filename for att in msg.attachments) + "]"
+                        log_lines.append(f"[{timestamp}] {msg.author.name} ({msg.author.id}): {msg.content or '*No text content*'}{attachments_str}")
+
+                    file_content = "\n".join(log_lines)
+                    file_data = io.BytesIO(file_content.encode('utf-8'))
+
+                    # Send to Member Log Channel if configured
+                    from database.database import MemberLogChannel
+                    async with async_session() as session:
+                        log_channel_entry = await session.get(MemberLogChannel, guild.id)
+                        member_log_channel = None
+                        if log_channel_entry:
+                            member_log_channel = guild.get_channel(log_channel_entry.channel_id)
+                            if not member_log_channel:
+                                try:
+                                    member_log_channel = await guild.fetch_channel(log_channel_entry.channel_id)
+                                except Exception:
+                                    pass
+
+                    if member_log_channel:
+                        embed = discord.Embed(
+                            title="Purge Log - Local Channel Purge",
+                            color=discord.Color.purple(),
+                            timestamp=discord.utils.utcnow()
+                        )
+                        embed.description = (
+                            f"**Moderator:** {interaction.user.mention} ({interaction.user.id})\n"
+                            f"**Channel:** {target_channel.mention}\n"
+                            f"**Requested Amount:** {amount}\n"
+                            f"**Total Messages Deleted:** {len(deleted)} messages\n\n"
+                            f"*The detailed logs of the deleted messages are attached to this log.*"
+                        )
+                        embed.set_footer(text="Cleaned up local channel.")
+
+                        discord_file = discord.File(file_data, filename=f"purge_local_{target_channel.id}.txt")
+                        try:
+                            await member_log_channel.send(embed=embed, file=discord_file)
+                        except Exception as e:
+                            logger.error("Failed to send local purge log to member log channel: %s", e)
+
+                await send_mod_log(
+                    self.bot,
+                    guild,
+                    action="Purge",
+                    moderator=interaction.user,
+                    extra=f"Deleted {len(deleted)} messages in {target_channel.mention}"
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "My dear, my powers of... *tidying up*... do not extend to this particular room.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                await interaction.followup.send(
+                    f"A most untidy error has occurred: {e}",
+                    ephemeral=True
+                )
+        else:
+            # Targeted user purge
+            if days < 1 or days > 14:
+                return await interaction.response.send_message(
+                    "Even my influence, my dear, cannot erase history older than fourteen days or less than one. "
+                    "A number between 1 and 14, if you please.",
+                    ephemeral=True
+                )
+
+            await interaction.response.defer(ephemeral=True)
+
+            # Resolve target user
+            target_user = None
+            member_id = None
+
+            # Check if input is digits
+            if member.isdigit():
+                member_id = int(member)
+            # Check if input is mention
+            elif member.startswith("<@") and member.endswith(">"):
+                clean_id = member.strip("<@!>")
+                if clean_id.isdigit():
+                    member_id = int(clean_id)
+
+            if member_id:
+                target_user = guild.get_member(member_id)
+                if not target_user:
+                    try:
+                        target_user = await guild.fetch_member(member_id)
+                    except Exception:
+                        pass
+                if not target_user:
+                    try:
+                        target_user = await self.bot.fetch_user(member_id)
+                    except Exception:
+                        pass
+
+            if not target_user:
+                # Search by username, global_name, or nickname in members list
+                target_user = discord.utils.find(
+                    lambda m: m.name.lower() == member.lower() or
+                              (m.nick and m.nick.lower() == member.lower()) or
+                              (getattr(m, 'global_name', None) and m.global_name.lower() == member.lower()),
+                    guild.members
+                )
+
+            if not target_user:
+                return await interaction.followup.send(
+                    "My dear, I cannot find any such... *guest* in our presence or records. "
+                    "Are you quite sure they exist?",
+                    ephemeral=True
+                )
+
+            cutoff = discord.utils.utcnow() - datetime.timedelta(days=days)
+
+            # Determine channels to search
+            if channel:
+                channels_to_search = [channel]
+            else:
+                channels_to_search = []
+                for ch in guild.text_channels:
+                    perms = ch.permissions_for(guild.me)
+                    if perms.read_messages and perms.manage_messages:
+                        channels_to_search.append(ch)
+
+            # Filter out excluded channels using DB
+            async with async_session() as session:
+                result = await session.execute(
+                    select(ExcludedChannel).where(ExcludedChannel.guild_id == guild.id)
+                )
+                excluded_ids = {entry.channel_id for entry in result.scalars().all()}
+
+            channels_to_search = [ch for ch in channels_to_search if ch.id not in excluded_ids]
+
+            all_purged_messages = []
+
+            for ch in channels_to_search:
+                try:
+                    to_delete = []
+                    async for msg in ch.history(after=cutoff, limit=None):
+                        if msg.author.id == target_user.id:
+                            to_delete.append(msg)
+                            all_purged_messages.append(msg)
+
+                            # Track in purged message IDs set
+                            self.bot.purged_message_ids.add(msg.id)
+
+                            if len(to_delete) == 100:
+                                await ch.delete_messages(to_delete)
+                                to_delete = []
+                    if to_delete:
+                        if len(to_delete) == 1:
+                            await to_delete[0].delete()
+                        else:
+                            await ch.delete_messages(to_delete)
+                except Exception as e:
+                    logger.error("Failed to purge channel %s for user %s: %s", ch.name, target_user.id, e)
+
+            # Format response
             await interaction.followup.send(
-                f"Deleted {len(deleted)} messages." +
-                (f" (Only from <@{target_user_id}>)" if target_user_id else "")
+                f"And... poof! {len(all_purged_messages)} messages authored by {target_user.mention} (ID: {target_user.id}) "
+                f"from the last {days} day(s) have vanished. A clean slate, as if they never were."
+            )
+
+            # Generate target purge log report
+            if all_purged_messages:
+                all_purged_messages = sorted(all_purged_messages, key=lambda m: m.created_at)
+                log_lines = [
+                    f"Morrible Bot - Targeted Purge Log",
+                    f"--------------------------------------------------",
+                    f"Date/Time: {discord.utils.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                    f"Moderator: {interaction.user.name} (ID: {interaction.user.id})",
+                    f"Target User: {target_user.name} (ID: {target_user.id})",
+                    f"Time window: {days} day(s)",
+                    f"Total Messages Deleted: {len(all_purged_messages)}",
+                    f"--------------------------------------------------\n"
+                ]
+                for msg in all_purged_messages:
+                    timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    attachments_str = ""
+                    if msg.attachments:
+                        attachments_str = " [Attachments: " + ", ".join(att.filename for att in msg.attachments) + "]"
+                    log_lines.append(f"[#{msg.channel.name}] [{timestamp}] {msg.author.name} ({msg.author.id}): {msg.content or '*No text content*'}{attachments_str}")
+
+                file_content = "\n".join(log_lines)
+                file_data = io.BytesIO(file_content.encode('utf-8'))
+
+                # Fetch member log channel
+                from database.database import MemberLogChannel
+                async with async_session() as session:
+                    log_channel_entry = await session.get(MemberLogChannel, guild.id)
+                    member_log_channel = None
+                    if log_channel_entry:
+                        member_log_channel = guild.get_channel(log_channel_entry.channel_id)
+                        if not member_log_channel:
+                            try:
+                                member_log_channel = await guild.fetch_channel(log_channel_entry.channel_id)
+                            except Exception:
+                                pass
+
+                if member_log_channel:
+                    embed = discord.Embed(
+                        title="Purge Log - Mass Targeted Purge",
+                        color=discord.Color.purple(),
+                        timestamp=discord.utils.utcnow()
+                    )
+                    avatar_url = target_user.display_avatar.url
+                    embed.set_thumbnail(url=avatar_url)
+                    embed.description = (
+                        f"**Moderator:** {interaction.user.mention} ({interaction.user.id})\n"
+                        f"**Target:** {target_user.mention} ({target_user.id})\n"
+                        f"**Time Window:** {days} day(s)\n"
+                        f"**Total Messages Deleted:** {len(all_purged_messages)} messages\n\n"
+                        f"*The detailed logs of the deleted messages are attached to this log.*"
+                    )
+                    embed.set_footer(text="Cleaned up across channels.")
+
+                    discord_file = discord.File(file_data, filename=f"purge_targeted_{target_user.id}.txt")
+                    try:
+                        await member_log_channel.send(embed=embed, file=discord_file)
+                    except Exception as e:
+                        logger.error("Failed to send targeted purge log to member log channel: %s", e)
+
+            # Send mod log
+            extra_details = (
+                f"Deleted {len(all_purged_messages)} messages from target {target_user.name} ({target_user.id}) "
+                f"across channels over the last {days} day(s)."
             )
             await send_mod_log(
                 self.bot,
-                interaction.guild,
-                action="Purge",
+                guild,
+                action="Targeted Purge",
                 moderator=interaction.user,
-                extra=(
-                    f"Deleted {len(deleted)} messages" +
-                    (f" from <@{target_user_id}>" if target_user_id else "") +
-                    f" in {interaction.channel.mention}"
-                )
+                target=target_user,
+                extra=extra_details
             )
-        except discord.Forbidden:
-            await interaction.followup.send("I do not have permission to delete messages in this channel.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
 
     # Slowmode
 
@@ -585,17 +831,17 @@ class Moderation(commands.Cog):
         """Sets slowmode for a channel. If channel is not given, current channel is used."""
         delta = parse_duration(duration)
         if delta is None:
-            return await interaction.response.send_message("❌ Invalid duration format. Use formats like `10s`, `5m`, `1h30m`")
+            return await interaction.response.send_message("Such a clumsy way with time. The duration must be specified with... *elegance*. `10s`, `5m`, `1h30m`, and so on.")
 
         delay_seconds = int(delta.total_seconds())
         if delay_seconds < 0 or delay_seconds > 21600:
-            return await interaction.response.send_message("❌ Slowmode must be between 0s and 6h (21600 seconds).")
+            return await interaction.response.send_message("Even patience has its limits, my dear. The slowmode must be between a fleeting moment and a six-hour eternity.")
 
         target_channel = channel or interaction.channel
 
         try:
             await target_channel.edit(slowmode_delay=delay_seconds)
-            await interaction.response.send_message(f"✅ Slowmode set to `{duration}` seconds in {target_channel.mention}.")
+            await interaction.response.send_message(f"Let us encourage a more... *deliberate* pace of conversation. Slowmode has been set to `{duration}` in {target_channel.mention}.")
 
             # Moderation Logs
             await send_mod_log(
@@ -606,9 +852,9 @@ class Moderation(commands.Cog):
                 extra=f"Set to `{duration}` in {target_channel.mention}"
             )
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I don't have permission to edit this channel.", ephemeral=True)
+            await interaction.response.send_message("This channel, it seems, is resistant to my... *calming influence*. I cannot change it.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"A most disorderly error has occurred: {str(e)}", ephemeral=True)
 
     # Mute
 
@@ -622,28 +868,28 @@ class Moderation(commands.Cog):
 
         # Prevent self-mute
         if member.id == interaction.user.id:
-            return await interaction.response.send_message("You cannot mute yourself.", ephemeral=False)
+            return await interaction.response.send_message("A vow of silence? How... dramatic. But no, you cannot mute yourself.", ephemeral=False)
 
         # Prevent muting the bot
         if member.id == self.bot.user.id:
-            return await interaction.response.send_message("You cannot mute the bot.", ephemeral=False)
+            return await interaction.response.send_message("Silence *me*? Oh, you are a funny one. But no.", ephemeral=False)
 
         issuer_level = get_highest_role_level(interaction.user)
         target_level = get_highest_role_level(member)
 
         if issuer_level <= target_level:
-            return await interaction.response.send_message("You cannot mute someone with an equal or higher role.", ephemeral=False)
+            return await interaction.response.send_message("One must not silence their betters, my dear. It's simply not done.", ephemeral=False)
 
         if not muted_role:
-            return await interaction.response.send_message("I sought to summon the powers of silence, but was denied. An administrator must intervene.")
+            return await interaction.response.send_message("My powers of silence are, for the moment, unavailable. A more... *senior* practitioner is required.")
 
         if muted_role in member.roles:
-            return await interaction.response.send_message(f"{member.mention} is already shackled by silence.")
+            return await interaction.response.send_message(f"The little dear is already... *speechless*. There is nothing more to be done.")
 
         try:
             await member.add_roles(muted_role)
-            await member.send(f"{member.mention} has been muted for: {reason}")
-            await interaction.response.send_message(f"{member.mention} has been enveloped in a most unbreakable silence. A fitting end for their folly! Reason: {reason}")
+            await member.send(f"A hush has fallen, {member.mention}. You have been... *silenced* for: {reason}")
+            await interaction.response.send_message(f"Let a hush fall over {member.mention}. They have been... *silenced*. A consequence of their own making, of course.")
             await save_infraction(
                 user_id=member.id,
                 moderator_id=interaction.user.id,
@@ -654,9 +900,9 @@ class Moderation(commands.Cog):
             # Moderation log
             await send_mod_log(self.bot, interaction.guild, "Mute", interaction.user, member, reason)
         except discord.Forbidden:
-            await interaction.response.send_message("Alas! I lack the authority to mute this illustrious being.")
+            await interaction.response.send_message("This one's voice, it seems, is beyond my control. How... disappointing.")
         except Exception as e:
-            await interaction.response.send_message(f"An error most foul has occurred: `{str(e)}`")
+            await interaction.response.send_message(f"A most cacophonous error has occurred: `{str(e)}`")
 
     # Auto add mute permissions on new channel creation
 
@@ -684,21 +930,23 @@ class Moderation(commands.Cog):
         muted_role = await get_or_create_muted_role(interaction.guild)
 
         if not muted_role:
-            return await interaction.response.send_message("The forces of silence have left no trace. There is no muting to undo.", ephemeral=True)
+            return await interaction.response.send_message("There is no silence to break, my dear. The stage is already... noisy.", ephemeral=True)
+            return
 
         if muted_role not in member.roles:
-            return await interaction.response.send_message(f"{member.mention} is not among the silent ranks.", ephemeral=True)
+            return await interaction.response.send_message(f"{member.mention} is not one of the... *silent ones*. They are free to speak.", ephemeral=True)
+            return
 
         try:
             await member.remove_roles(muted_role)
-            await member.send(f"{member.mention} has been unmuted")
-            await interaction.response.send_message(f"{member.mention} has been freed from their cursed silence. May they tread carefully henceforth.")
+            await member.send(f"Your voice has been... *restored*, {member.mention}. Do try to have something interesting to say this time.")
+            await interaction.response.send_message(f"Very well. {member.mention}'s voice has been... *restored*. Let's hope they have something interesting to say this time.")
             # Moderation log
             await send_mod_log(self.bot, interaction.guild, "Unmute", interaction.user, member)
         except discord.Forbidden:
-            await interaction.response.send_message("I cannot lift the silence from this soul. They are beyond my reach.", ephemeral=True)
+            await interaction.response.send_message("This particular silence is... beyond my power to break. A pity.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"A calamity most unexpected has occurred: `{str(e)}`", ephemeral=True)
+            await interaction.response.send_message(f"A most discordant error has occurred: `{str(e)}`", ephemeral=True)
 
     # List User Infractions:
     @app_commands.command(name="infractions", description="Show all infractions for a user by ID.")
@@ -711,14 +959,14 @@ class Moderation(commands.Cog):
         try:
             user_id = int(user_id)
         except ValueError:
-            return await interaction.response.send_message("❌ Invalid user ID.", ephemeral=False)
+            return await interaction.response.send_message("That simply won't do. You must provide a *proper* user ID, my dear.", ephemeral=False)
 
         async with async_session() as session:
             result = await session.execute(select(Infraction).where(Infraction.user_id == user_id))
             infractions = result.scalars().all()
 
         if not infractions:
-            return await interaction.response.send_message("✅ This user has no infractions.")
+            return await interaction.response.send_message("A clean slate! How... refreshing. This user has no recorded... *missteps*.")
 
         # Count summary
         counts = Counter(i.infraction_type.lower() for i in infractions)
@@ -740,7 +988,7 @@ class Moderation(commands.Cog):
         view = PaginatedEmbedView(
             entries=infractions,
             per_page=5,
-            title=f"Infractions for User ID: {user_id}",
+            title=f"A Record of Misdeeds for User ID: {user_id}",
             formatter=formatter,
             color=discord.Color.purple()
         )
@@ -752,7 +1000,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to clear infractions for.")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(4)
+    @require_role(3)
     async def clearinfractions(self, interaction: discord.Interaction, user: discord.Member):
         """To clear all infractions by a user."""
         async with async_session() as session:
@@ -761,7 +1009,7 @@ class Moderation(commands.Cog):
             infractions = result.scalars().all()
 
             if not infractions:
-                await interaction.response.send_message(f"✅ {user.mention} has no infractions to clear.", ephemeral=False)
+                await interaction.response.send_message(f"It seems {user.mention} is a model citizen. There are no... *blemishes* on their record to remove.", ephemeral=False)
                 return
 
             for infraction in infractions:
@@ -769,7 +1017,7 @@ class Moderation(commands.Cog):
 
             await session.commit()
 
-            await interaction.response.send_message(f"🗑️ Cleared all infractions for {user.mention}.", ephemeral=False)
+            await interaction.response.send_message(f"The past has been... *erased*. All of {user.mention}'s little... *indiscretions*... have been wiped clean.", ephemeral=False)
 
             # Moderation log
             await send_mod_log(self.bot, interaction.guild, "Clear Infraction", interaction.user, user)
@@ -780,7 +1028,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(channel="Channel for moderation logs")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(4)
+    @require_role(3)
     async def set_mod_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Set channel for moderation logs"""
 
@@ -796,7 +1044,7 @@ class Moderation(commands.Cog):
 
             await session.commit()
 
-        await interaction.response.send_message(f"✅ Mod log channel set to {channel.mention}")
+        await interaction.response.send_message(f"Very well. The chronicles of our... *disciplinary actions*... shall be recorded in {channel.mention}.")
 
 
 async def setup(bot: commands.Bot):
