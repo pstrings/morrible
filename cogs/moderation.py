@@ -339,6 +339,99 @@ class Moderation(commands.Cog):
 
         await interaction.response.defer(thinking=False)
 
+        # Initialize purged message IDs cache on bot if not present
+        if not hasattr(self.bot, "purged_message_ids"):
+            self.bot.purged_message_ids = set()
+
+        if delete_message_days > 0:
+            try:
+                all_ban_messages = []
+                cutoff = discord.utils.utcnow() - datetime.timedelta(days=delete_message_days)
+                channels_to_search = []
+                for ch in interaction.guild.text_channels:
+                    perms = ch.permissions_for(interaction.guild.me)
+                    if perms.read_messages:
+                        channels_to_search.append(ch)
+
+                # Filter out excluded channels using DB
+                async with async_session() as session:
+                    result = await session.execute(
+                        select(ExcludedChannel).where(ExcludedChannel.guild_id == interaction.guild.id)
+                    )
+                    excluded_ids = {entry.channel_id for entry in result.scalars().all()}
+
+                channels_to_search = [ch for ch in channels_to_search if ch.id not in excluded_ids]
+
+                for ch in channels_to_search:
+                    try:
+                        async for msg in ch.history(after=cutoff, limit=None):
+                            if msg.author.id == member.id:
+                                all_ban_messages.append(msg)
+                                self.bot.purged_message_ids.add(msg.id)
+                    except Exception as e:
+                        logger.error("Failed to fetch history for channel %s during ban: %s", ch.name, e)
+
+                # Generate target purge log report
+                if all_ban_messages:
+                    all_ban_messages = sorted(all_ban_messages, key=lambda m: m.created_at)
+                    log_lines = [
+                        f"Morrible Bot - Ban Message Purge Log",
+                        f"--------------------------------------------------",
+                        f"Date/Time: {discord.utils.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                        f"Moderator: {interaction.user.name} (ID: {interaction.user.id})",
+                        f"Banned User: {member.name} (ID: {member.id})",
+                        f"Time window: {delete_message_days} day(s)",
+                        f"Total Messages Logged: {len(all_ban_messages)}",
+                        f"--------------------------------------------------\n"
+                    ]
+                    for msg in all_ban_messages:
+                        timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                        attachments_str = ""
+                        if msg.attachments:
+                            attachments_str = " [Attachments: " + ", ".join(att.filename for att in msg.attachments) + "]"
+                        log_lines.append(f"[#{msg.channel.name}] [{timestamp}] {msg.author.name} ({msg.author.id}): {msg.content or '*No text content*'}{attachments_str}")
+
+                    file_content = "\n".join(log_lines)
+                    file_data = io.BytesIO(file_content.encode('utf-8'))
+
+                    # Fetch member log channel
+                    from database.database import MemberLogChannel
+                    async with async_session() as session:
+                        log_channel_entry = await session.get(MemberLogChannel, interaction.guild.id)
+                        member_log_channel = None
+                        if log_channel_entry:
+                            member_log_channel = interaction.guild.get_channel(log_channel_entry.channel_id)
+                            if not member_log_channel:
+                                try:
+                                    member_log_channel = await interaction.guild.fetch_channel(log_channel_entry.channel_id)
+                                except Exception:
+                                    pass
+
+                    if member_log_channel:
+                        embed = discord.Embed(
+                            title="Purge Log - Ban Message Purge",
+                            color=discord.Color.purple(),
+                            timestamp=discord.utils.utcnow()
+                        )
+                        avatar_url = member.display_avatar.url
+                        embed.set_thumbnail(url=avatar_url)
+                        embed.description = (
+                            f"**Moderator:** {interaction.user.mention} ({interaction.user.id})\n"
+                            f"**Banned User:** {member.mention} ({member.id})\n"
+                            f"**Pruned Message Window:** {delete_message_days} day(s)\n"
+                            f"**Total Messages Pruned:** {len(all_ban_messages)} messages\n\n"
+                            f"*The detailed logs of the pruned messages are attached to this log.*"
+                        )
+                        embed.set_footer(text="Cleaned up during ban.")
+
+                        discord_file = discord.File(file_data, filename=f"purge_ban_{member.id}.txt")
+                        try:
+                            await member_log_channel.send(embed=embed, file=discord_file)
+                        except Exception as e:
+                            logger.error("Failed to send ban purge log to member log channel: %s", e)
+            except Exception as e:
+                logger.error("An error occurred during ban message logging: %s", e)
+
         try:
             try:
                 await member.send(f"You have been banished from {interaction.guild.name} for: {reason}. A fitting end, wouldn't you agree?")
