@@ -19,15 +19,29 @@ class Logging(commands.Cog):
     async def _get_log_channel(self, guild: discord.Guild) -> TextChannel | None:
         """Helper to retrieve the configured member log channel for a guild."""
         async with async_session() as session:
-            log_channel_entry = await session.get(MemberLogChannel, guild.id)
+            try:
+                log_channel_entry = await session.get(MemberLogChannel, guild.id)
+            except Exception as e:
+                logger.error("Database error while fetching MemberLogChannel for guild %s (%s): %s", guild.name, guild.id, e)
+                return None
+
             if not log_channel_entry:
+                logger.warning("No member log channel configured in database for guild %s (%s)", guild.name, guild.id)
                 return None
 
             channel = guild.get_channel(log_channel_entry.channel_id)
             if not channel:
+                logger.info("Log channel %s not found in cache for guild %s (%s). Attempting to fetch...", log_channel_entry.channel_id, guild.name, guild.id)
                 try:
                     channel = await guild.fetch_channel(log_channel_entry.channel_id)
-                except Exception:
+                except discord.NotFound:
+                    logger.error("Log channel %s for guild %s (%s) does not exist (NotFound).", log_channel_entry.channel_id, guild.name, guild.id)
+                    return None
+                except discord.Forbidden:
+                    logger.error("Lacked permission to access/fetch log channel %s for guild %s (%s) (Forbidden).", log_channel_entry.channel_id, guild.name, guild.id)
+                    return None
+                except Exception as e:
+                    logger.error("Failed to fetch log channel %s for guild %s (%s): %s", log_channel_entry.channel_id, guild.name, guild.id, e)
                     return None
             return channel
 
@@ -45,8 +59,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: Member):
+        logger.info("on_member_join event triggered for %s (%s) in guild %s (%s)", member.name, member.id, member.guild.name, member.guild.id)
         channel = await self._get_log_channel(member.guild)
         if not channel:
+            logger.warning("on_member_join: Log channel could not be resolved, exiting.")
             return
 
         created_ts = int(member.created_at.timestamp())
@@ -74,8 +90,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: Member):
+        logger.info("on_member_remove event triggered for %s (%s) in guild %s (%s)", member.name, member.id, member.guild.name, member.guild.id)
         channel = await self._get_log_channel(member.guild)
         if not channel:
+            logger.warning("on_member_remove: Log channel could not be resolved, exiting.")
             return
 
         created_ts = int(member.created_at.timestamp())
@@ -234,20 +252,29 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
         """Log message deletion (both cached and uncached fallback)."""
+        logger.info("on_raw_message_delete event triggered for message ID %s in guild ID %s", payload.message_id, payload.guild_id)
         # Ignore messages deleted by a bot purge command
         if hasattr(self.bot, "purged_message_ids") and payload.message_id in self.bot.purged_message_ids:
+            logger.info("on_raw_message_delete: ignoring purged message %s", payload.message_id)
             self.bot.purged_message_ids.remove(payload.message_id)
             return
 
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
-            return
+            logger.info("on_raw_message_delete: guild ID %s not found in cache. Attempting to fetch...", payload.guild_id)
+            try:
+                guild = await self.bot.fetch_guild(payload.guild_id)
+            except Exception as e:
+                logger.error("on_raw_message_delete: Failed to fetch guild ID %s: %s", payload.guild_id, e)
+                return
 
         if await self._is_channel_excluded(payload.guild_id, payload.channel_id):
+            logger.info("on_raw_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
             return
 
         channel = await self._get_log_channel(guild)
         if not channel:
+            logger.warning("on_raw_message_delete: Log channel could not be resolved, exiting.")
             return
 
         ch = guild.get_channel(payload.channel_id)
@@ -320,11 +347,18 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent):
         """Log bulk message deletion (with group/author file download logic)."""
+        logger.info("on_raw_bulk_message_delete event triggered for %s messages in guild ID %s", len(payload.message_ids), payload.guild_id)
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
-            return
+            logger.info("on_raw_bulk_message_delete: guild ID %s not found in cache. Attempting to fetch...", payload.guild_id)
+            try:
+                guild = await self.bot.fetch_guild(payload.guild_id)
+            except Exception as e:
+                logger.error("on_raw_bulk_message_delete: Failed to fetch guild ID %s: %s", payload.guild_id, e)
+                return
 
         if await self._is_channel_excluded(guild.id, payload.channel_id):
+            logger.info("on_raw_bulk_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
             return
 
         total_ids = set(payload.message_ids)
@@ -346,6 +380,7 @@ class Logging(commands.Cog):
 
         channel = await self._get_log_channel(guild)
         if not channel:
+            logger.warning("on_raw_bulk_message_delete: Log channel could not be resolved, exiting.")
             return
 
         ch = guild.get_channel(payload.channel_id)
