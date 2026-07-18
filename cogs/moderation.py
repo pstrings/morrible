@@ -394,20 +394,20 @@ class Moderation(commands.Cog):
                     file_content = "\n".join(log_lines)
                     file_data = io.BytesIO(file_content.encode('utf-8'))
 
-                    # Fetch member log channel
-                    from database.database import MemberLogChannel
+                    # Fetch message log channel
+                    from database.database import MessageLogChannel
                     async with async_session() as session:
-                        log_channel_entry = await session.get(MemberLogChannel, interaction.guild.id)
-                        member_log_channel = None
+                        log_channel_entry = await session.get(MessageLogChannel, interaction.guild.id)
+                        message_log_channel = None
                         if log_channel_entry:
-                            member_log_channel = interaction.guild.get_channel(log_channel_entry.channel_id)
-                            if not member_log_channel:
+                            message_log_channel = interaction.guild.get_channel(log_channel_entry.channel_id)
+                            if not message_log_channel:
                                 try:
-                                    member_log_channel = await interaction.guild.fetch_channel(log_channel_entry.channel_id)
+                                    message_log_channel = await interaction.guild.fetch_channel(log_channel_entry.channel_id)
                                 except Exception:
                                     pass
 
-                    if member_log_channel:
+                    if message_log_channel:
                         embed = discord.Embed(
                             title="Purge Log - Ban Message Purge",
                             color=discord.Color.purple(),
@@ -426,9 +426,9 @@ class Moderation(commands.Cog):
 
                         discord_file = discord.File(file_data, filename=f"purge_ban_{member.id}.txt")
                         try:
-                            await member_log_channel.send(embed=embed, file=discord_file)
+                            await message_log_channel.send(embed=embed, file=discord_file)
                         except Exception as e:
-                            logger.error("Failed to send ban purge log to member log channel: %s", e)
+                            logger.error("Failed to send ban purge log to message log channel: %s", e)
             except Exception as e:
                 logger.error("An error occurred during ban message logging: %s", e)
 
@@ -685,20 +685,20 @@ class Moderation(commands.Cog):
                     file_content = "\n".join(log_lines)
                     file_data = io.BytesIO(file_content.encode('utf-8'))
 
-                    # Send to Member Log Channel if configured
-                    from database.database import MemberLogChannel
+                    # Send to Message Log Channel if configured
+                    from database.database import MessageLogChannel
                     async with async_session() as session:
-                        log_channel_entry = await session.get(MemberLogChannel, guild.id)
-                        member_log_channel = None
+                        log_channel_entry = await session.get(MessageLogChannel, guild.id)
+                        message_log_channel = None
                         if log_channel_entry:
-                            member_log_channel = guild.get_channel(log_channel_entry.channel_id)
-                            if not member_log_channel:
+                            message_log_channel = guild.get_channel(log_channel_entry.channel_id)
+                            if not message_log_channel:
                                 try:
-                                    member_log_channel = await guild.fetch_channel(log_channel_entry.channel_id)
+                                    message_log_channel = await guild.fetch_channel(log_channel_entry.channel_id)
                                 except Exception:
                                     pass
 
-                    if member_log_channel:
+                    if message_log_channel:
                         embed = discord.Embed(
                             title="Purge Log - Local Channel Purge",
                             color=discord.Color.purple(),
@@ -715,9 +715,9 @@ class Moderation(commands.Cog):
 
                         discord_file = discord.File(file_data, filename=f"purge_local_{target_channel.id}.txt")
                         try:
-                            await member_log_channel.send(embed=embed, file=discord_file)
+                            await message_log_channel.send(embed=embed, file=discord_file)
                         except Exception as e:
-                            logger.error("Failed to send local purge log to member log channel: %s", e)
+                            logger.error("Failed to send local purge log to message log channel: %s", e)
 
                 await send_mod_log(
                     self.bot,
@@ -863,20 +863,20 @@ class Moderation(commands.Cog):
                 file_content = "\n".join(log_lines)
                 file_data = io.BytesIO(file_content.encode('utf-8'))
 
-                # Fetch member log channel
-                from database.database import MemberLogChannel
+                # Fetch message log channel
+                from database.database import MessageLogChannel
                 async with async_session() as session:
-                    log_channel_entry = await session.get(MemberLogChannel, guild.id)
-                    member_log_channel = None
+                    log_channel_entry = await session.get(MessageLogChannel, guild.id)
+                    message_log_channel = None
                     if log_channel_entry:
-                        member_log_channel = guild.get_channel(log_channel_entry.channel_id)
-                        if not member_log_channel:
+                        message_log_channel = guild.get_channel(log_channel_entry.channel_id)
+                        if not message_log_channel:
                             try:
-                                member_log_channel = await guild.fetch_channel(log_channel_entry.channel_id)
+                                message_log_channel = await guild.fetch_channel(log_channel_entry.channel_id)
                             except Exception:
                                 pass
 
-                if member_log_channel:
+                if message_log_channel:
                     embed = discord.Embed(
                         title="Purge Log - Mass Targeted Purge",
                         color=discord.Color.purple(),
@@ -895,9 +895,9 @@ class Moderation(commands.Cog):
 
                     discord_file = discord.File(file_data, filename=f"purge_targeted_{target_user.id}.txt")
                     try:
-                        await member_log_channel.send(embed=embed, file=discord_file)
+                        await message_log_channel.send(embed=embed, file=discord_file)
                     except Exception as e:
-                        logger.error("Failed to send targeted purge log to member log channel: %s", e)
+                        logger.error("Failed to send targeted purge log to message log channel: %s", e)
 
             # Send mod log
             extra_details = (
@@ -1137,6 +1137,7 @@ class Moderation(commands.Cog):
 
             await session.commit()
 
+        logger.info("Moderation log channel configured for guild %s (%s) to #%s (%s)", interaction.guild.name, guild_id, channel.name, channel.id)
         await interaction.response.send_message(f"Very well. The chronicles of our... *disciplinary actions*... shall be recorded in {channel.mention}.")
 
 

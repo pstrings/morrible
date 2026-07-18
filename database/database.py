@@ -80,6 +80,13 @@ class MemberLogChannel(Base):
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class MessageLogChannel(Base):
+    __tablename__ = "message_log_channels"
+
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class ExcludedChannel(Base):
     __tablename__ = "excluded_channels"
 

@@ -3,7 +3,7 @@ import logging
 import discord
 from discord.ext import commands
 from discord import app_commands, Embed, TextChannel, Member
-from database.database import async_session, MemberLogChannel, ExcludedChannel
+from database.database import async_session, MemberLogChannel, MessageLogChannel, ExcludedChannel
 from cogs.moderation import require_role
 from sqlalchemy import select
 
@@ -27,6 +27,35 @@ class Logging(commands.Cog):
 
             if not log_channel_entry:
                 logger.debug("No member log channel configured in database for guild %s (%s)", guild.name, guild.id)
+                return None
+
+            channel = guild.get_channel(log_channel_entry.channel_id)
+            if not channel:
+                logger.info("Log channel %s not found in cache for guild %s (%s). Attempting to fetch...", log_channel_entry.channel_id, guild.name, guild.id)
+                try:
+                    channel = await guild.fetch_channel(log_channel_entry.channel_id)
+                except discord.NotFound:
+                    logger.error("Log channel %s for guild %s (%s) does not exist (NotFound).", log_channel_entry.channel_id, guild.name, guild.id)
+                    return None
+                except discord.Forbidden:
+                    logger.error("Lacked permission to access/fetch log channel %s for guild %s (%s) (Forbidden).", log_channel_entry.channel_id, guild.name, guild.id)
+                    return None
+                except Exception as e:
+                    logger.error("Failed to fetch log channel %s for guild %s (%s): %s", log_channel_entry.channel_id, guild.name, guild.id, e)
+                    return None
+            return channel
+
+    async def _get_message_log_channel(self, guild: discord.Guild) -> TextChannel | None:
+        """Helper to retrieve the configured message log channel for a guild."""
+        async with async_session() as session:
+            try:
+                log_channel_entry = await session.get(MessageLogChannel, guild.id)
+            except Exception as e:
+                logger.error("Database error while fetching MessageLogChannel for guild %s (%s): %s", guild.name, guild.id, e)
+                return None
+
+            if not log_channel_entry:
+                logger.debug("No message log channel configured in database for guild %s (%s)", guild.name, guild.id)
                 return None
 
             channel = guild.get_channel(log_channel_entry.channel_id)
@@ -275,7 +304,7 @@ class Logging(commands.Cog):
             logger.debug("on_raw_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
             return
 
-        channel = await self._get_log_channel(guild)
+        channel = await self._get_message_log_channel(guild)
         if not channel:
             logger.debug("on_raw_message_delete: Log channel could not be resolved, exiting.")
             return
@@ -384,7 +413,7 @@ class Logging(commands.Cog):
             total_count = len(payload.message_ids)
             cached_messages = payload.cached_messages
 
-        channel = await self._get_log_channel(guild)
+        channel = await self._get_message_log_channel(guild)
         if not channel:
             logger.debug("on_raw_bulk_message_delete: Log channel could not be resolved, exiting.")
             return
@@ -521,8 +550,34 @@ class Logging(commands.Cog):
                 session.add(MemberLogChannel(guild_id=guild_id, channel_id=channel.id))
             await session.commit()
 
+        logger.info("Member log channel configured for guild %s (%s) to #%s (%s)", interaction.guild.name, guild_id, channel.name, channel.id)
         await interaction.followup.send(
             f"Very well. The coming and going of our... *guests*, and their respective... *elevations*... "
+            f"shall be registered in {channel.mention}. How... *observant* of us.",
+            ephemeral=True
+        )
+
+    @app_commands.command(name="setmessagelog", description="Set the channel where deleted message logs will be posted.")
+    @app_commands.describe(channel="Channel for deleted message logs")
+    @app_commands.guild_only()
+    @app_commands.guild_install()
+    @require_role(3)
+    async def set_message_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        """Set channel for deleted message logging"""
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild.id
+
+        async with async_session() as session:
+            existing = await session.get(MessageLogChannel, guild_id)
+            if existing:
+                existing.channel_id = channel.id
+            else:
+                session.add(MessageLogChannel(guild_id=guild_id, channel_id=channel.id))
+            await session.commit()
+
+        logger.info("Message log channel configured for guild %s (%s) to #%s (%s)", interaction.guild.name, guild_id, channel.name, channel.id)
+        await interaction.followup.send(
+            f"Very well. The remnants of... *deleted conversations*... "
             f"shall be registered in {channel.mention}. How... *observant* of us.",
             ephemeral=True
         )
