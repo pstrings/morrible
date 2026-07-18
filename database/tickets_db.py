@@ -1,12 +1,14 @@
 # pylint: disable=not-callable
 
+import os
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy import Integer, BigInteger, String, DateTime
 from sqlalchemy.sql import func
 
-TICKETS_DATABASE_URL = "sqlite+aiosqlite:///./tickets.db"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TICKETS_DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(BASE_DIR, 'tickets.db')}"
 
 Base = declarative_base()
 engine = create_async_engine(TICKETS_DATABASE_URL, echo=False)

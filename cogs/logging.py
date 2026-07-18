@@ -26,7 +26,7 @@ class Logging(commands.Cog):
                 return None
 
             if not log_channel_entry:
-                logger.warning("No member log channel configured in database for guild %s (%s)", guild.name, guild.id)
+                logger.debug("No member log channel configured in database for guild %s (%s)", guild.name, guild.id)
                 return None
 
             channel = guild.get_channel(log_channel_entry.channel_id)
@@ -62,7 +62,7 @@ class Logging(commands.Cog):
         logger.info("on_member_join event triggered for %s (%s) in guild %s (%s)", member.name, member.id, member.guild.name, member.guild.id)
         channel = await self._get_log_channel(member.guild)
         if not channel:
-            logger.warning("on_member_join: Log channel could not be resolved, exiting.")
+            logger.debug("on_member_join: Log channel could not be resolved, exiting.")
             return
 
         created_ts = int(member.created_at.timestamp())
@@ -93,7 +93,7 @@ class Logging(commands.Cog):
         logger.info("on_member_remove event triggered for %s (%s) in guild %s (%s)", member.name, member.id, member.guild.name, member.guild.id)
         channel = await self._get_log_channel(member.guild)
         if not channel:
-            logger.warning("on_member_remove: Log channel could not be resolved, exiting.")
+            logger.debug("on_member_remove: Log channel could not be resolved, exiting.")
             return
 
         created_ts = int(member.created_at.timestamp())
@@ -252,16 +252,19 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
         """Log message deletion (both cached and uncached fallback)."""
-        logger.info("on_raw_message_delete event triggered for message ID %s in guild ID %s", payload.message_id, payload.guild_id)
+        if not payload.guild_id:
+            return
+
+        logger.debug("on_raw_message_delete event triggered for message ID %s in guild ID %s", payload.message_id, payload.guild_id)
         # Ignore messages deleted by a bot purge command
         if hasattr(self.bot, "purged_message_ids") and payload.message_id in self.bot.purged_message_ids:
-            logger.info("on_raw_message_delete: ignoring purged message %s", payload.message_id)
+            logger.debug("on_raw_message_delete: ignoring purged message %s", payload.message_id)
             self.bot.purged_message_ids.remove(payload.message_id)
             return
 
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
-            logger.info("on_raw_message_delete: guild ID %s not found in cache. Attempting to fetch...", payload.guild_id)
+            logger.debug("on_raw_message_delete: guild ID %s not found in cache. Attempting to fetch...", payload.guild_id)
             try:
                 guild = await self.bot.fetch_guild(payload.guild_id)
             except Exception as e:
@@ -269,12 +272,12 @@ class Logging(commands.Cog):
                 return
 
         if await self._is_channel_excluded(payload.guild_id, payload.channel_id):
-            logger.info("on_raw_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
+            logger.debug("on_raw_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
             return
 
         channel = await self._get_log_channel(guild)
         if not channel:
-            logger.warning("on_raw_message_delete: Log channel could not be resolved, exiting.")
+            logger.debug("on_raw_message_delete: Log channel could not be resolved, exiting.")
             return
 
         ch = guild.get_channel(payload.channel_id)
@@ -347,10 +350,13 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent):
         """Log bulk message deletion (with group/author file download logic)."""
-        logger.info("on_raw_bulk_message_delete event triggered for %s messages in guild ID %s", len(payload.message_ids), payload.guild_id)
+        if not payload.guild_id:
+            return
+
+        logger.debug("on_raw_bulk_message_delete event triggered for %s messages in guild ID %s", len(payload.message_ids), payload.guild_id)
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
-            logger.info("on_raw_bulk_message_delete: guild ID %s not found in cache. Attempting to fetch...", payload.guild_id)
+            logger.debug("on_raw_bulk_message_delete: guild ID %s not found in cache. Attempting to fetch...", payload.guild_id)
             try:
                 guild = await self.bot.fetch_guild(payload.guild_id)
             except Exception as e:
@@ -358,7 +364,7 @@ class Logging(commands.Cog):
                 return
 
         if await self._is_channel_excluded(guild.id, payload.channel_id):
-            logger.info("on_raw_bulk_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
+            logger.debug("on_raw_bulk_message_delete: channel ID %s is excluded from logging, skipping log.", payload.channel_id)
             return
 
         total_ids = set(payload.message_ids)
@@ -380,14 +386,11 @@ class Logging(commands.Cog):
 
         channel = await self._get_log_channel(guild)
         if not channel:
-            logger.warning("on_raw_bulk_message_delete: Log channel could not be resolved, exiting.")
+            logger.debug("on_raw_bulk_message_delete: Log channel could not be resolved, exiting.")
             return
 
         ch = guild.get_channel(payload.channel_id)
         channel_mention = ch.mention if ch else f"ID: {payload.channel_id}"
-
-        total_count = len(payload.message_ids)
-        cached_messages = payload.cached_messages
 
         # Group cached messages by author
         from collections import defaultdict
@@ -414,7 +417,7 @@ class Logging(commands.Cog):
                     attachments_str = ""
                     if msg.attachments:
                         attachments_str = " [Attachments: " + ", ".join(att.filename for att in msg.attachments) + "]"
-                    log_lines.append(f"[{timestamp}] {msg.content}{attachments_str}")
+                    log_lines.append(f"[{timestamp}] {msg.content or '*No text content*'}{attachments_str}")
 
                 file_content = "\n".join(log_lines)
                 file_data = io.BytesIO(file_content.encode('utf-8'))
@@ -524,61 +527,131 @@ class Logging(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="logexclude", description="Exclude a channel from all logging activities.")
-    @app_commands.describe(channel="The channel to exclude from logs (Text, Voice, or Stage)")
+    @app_commands.command(name="logexclude", description="Exclude one or more channels from all logging activities (comma separated).")
+    @app_commands.describe(channels="The channels to exclude from logs (Text, Voice, or Stage), separated by commas (mentions, IDs, or names)")
     @app_commands.guild_only()
     @app_commands.guild_install()
     @require_role(3)
-    async def log_exclude(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
-        """Exclude a channel from logs."""
+    async def log_exclude(self, interaction: discord.Interaction, channels: str):
+        """Exclude channels from logs."""
+        import re
         await interaction.response.defer(ephemeral=True)
         guild_id = interaction.guild.id
 
-        async with async_session() as session:
-            existing = await session.get(ExcludedChannel, (guild_id, channel.id))
-            if existing:
-                await interaction.followup.send(
-                    f"My dear, {channel.mention} is already kept secret from my eyes.",
-                    ephemeral=True
-                )
-                return
+        raw_channels = [c.strip() for c in channels.split(",") if c.strip()]
+        if not raw_channels:
+            await interaction.followup.send("My dear, you must provide at least one channel.", ephemeral=True)
+            return
 
-            session.add(ExcludedChannel(guild_id=guild_id, channel_id=channel.id))
+        excluded_channels = []
+        already_excluded = []
+        invalid_channels = []
+
+        async with async_session() as session:
+            for raw in raw_channels:
+                channel = None
+                # Check for mention: <#ID>
+                match = re.match(r"<#(\d+)>", raw)
+                if match:
+                    channel_id = int(match.group(1))
+                    channel = interaction.guild.get_channel(channel_id)
+                elif raw.isdigit():
+                    channel_id = int(raw)
+                    channel = interaction.guild.get_channel(channel_id)
+                else:
+                    # Check matching channel by name (case-insensitive)
+                    channel = discord.utils.get(interaction.guild.channels, name=raw)
+                    if not channel and raw.startswith("#"):
+                        channel = discord.utils.get(interaction.guild.channels, name=raw[1:])
+                
+                if not channel:
+                    invalid_channels.append(raw)
+                    continue
+
+                existing = await session.get(ExcludedChannel, (guild_id, channel.id))
+                if existing:
+                    already_excluded.append(channel)
+                else:
+                    session.add(ExcludedChannel(guild_id=guild_id, channel_id=channel.id))
+                    excluded_channels.append(channel)
+
             await session.commit()
 
-        await interaction.followup.send(
-            f"Very well. The secrets of {channel.mention} shall remain... *untold*. "
-            f"I shall turn a blind eye to its occurrences.",
-            ephemeral=True
-        )
+        response_parts = []
+        if excluded_channels:
+            mentions = ", ".join(c.mention for c in excluded_channels)
+            response_parts.append(f"Very well. The secrets of {mentions} shall remain... *untold*. I shall turn a blind eye to their occurrences.")
+        if already_excluded:
+            mentions = ", ".join(c.mention for c in already_excluded)
+            response_parts.append(f"My dear, {mentions} is already kept secret from my eyes.")
+        if invalid_channels:
+            invalids = ", ".join(f"`{raw}`" for raw in invalid_channels)
+            response_parts.append(f"Alas, I could not locate any channel matching: {invalids}. Perhaps you misspoke?")
 
-    @app_commands.command(name="loginclude", description="Re-enable logging for a previously excluded channel.")
-    @app_commands.describe(channel="The channel to include back in logs")
+        await interaction.followup.send("\n".join(response_parts), ephemeral=True)
+
+    @app_commands.command(name="loginclude", description="Re-enable logging for previously excluded channels (comma separated).")
+    @app_commands.describe(channels="The channels to include back in logs, separated by commas (mentions, IDs, or names)")
     @app_commands.guild_only()
     @app_commands.guild_install()
     @require_role(3)
-    async def log_include(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
-        """Remove a channel from logging exclusions."""
+    async def log_include(self, interaction: discord.Interaction, channels: str):
+        """Remove channels from logging exclusions."""
+        import re
         await interaction.response.defer(ephemeral=True)
         guild_id = interaction.guild.id
 
-        async with async_session() as session:
-            existing = await session.get(ExcludedChannel, (guild_id, channel.id))
-            if not existing:
-                await interaction.followup.send(
-                    f"My dear, {channel.mention} was never excluded from my watchful gaze.",
-                    ephemeral=True
-                )
-                return
+        raw_channels = [c.strip() for c in channels.split(",") if c.strip()]
+        if not raw_channels:
+            await interaction.followup.send("My dear, you must provide at least one channel.", ephemeral=True)
+            return
 
-            await session.delete(existing)
+        included_channels = []
+        not_excluded = []
+        invalid_channels = []
+
+        async with async_session() as session:
+            for raw in raw_channels:
+                channel = None
+                # Check for mention: <#ID>
+                match = re.match(r"<#(\d+)>", raw)
+                if match:
+                    channel_id = int(match.group(1))
+                    channel = interaction.guild.get_channel(channel_id)
+                elif raw.isdigit():
+                    channel_id = int(raw)
+                    channel = interaction.guild.get_channel(channel_id)
+                else:
+                    # Check matching channel by name (case-insensitive)
+                    channel = discord.utils.get(interaction.guild.channels, name=raw)
+                    if not channel and raw.startswith("#"):
+                        channel = discord.utils.get(interaction.guild.channels, name=raw[1:])
+                
+                if not channel:
+                    invalid_channels.append(raw)
+                    continue
+
+                existing = await session.get(ExcludedChannel, (guild_id, channel.id))
+                if not existing:
+                    not_excluded.append(channel)
+                else:
+                    await session.delete(existing)
+                    included_channels.append(channel)
+
             await session.commit()
 
-        await interaction.followup.send(
-            f"Ah, so {channel.mention} is returned to the public stage. "
-            f"I shall resume my... *observations*.",
-            ephemeral=True
-        )
+        response_parts = []
+        if included_channels:
+            mentions = ", ".join(c.mention for c in included_channels)
+            response_parts.append(f"Ah, so {mentions} is returned to the public stage. I shall resume my... *observations*.")
+        if not_excluded:
+            mentions = ", ".join(c.mention for c in not_excluded)
+            response_parts.append(f"My dear, {mentions} was never excluded from my watchful gaze.")
+        if invalid_channels:
+            invalids = ", ".join(f"`{raw}`" for raw in invalid_channels)
+            response_parts.append(f"Alas, I could not locate any channel matching: {invalids}. Perhaps you misspoke?")
+
+        await interaction.followup.send("\n".join(response_parts), ephemeral=True)
 
     @app_commands.command(name="loglistexcluded", description="List all channels excluded from logging.")
     @app_commands.guild_only()
