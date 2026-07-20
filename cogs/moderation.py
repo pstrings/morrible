@@ -18,10 +18,11 @@ from database.database import async_session, Infraction, ModLogChannel, Excluded
 logger = logging.getLogger("morrible")
 
 ROLE_HIERARCHY = {
-    "the good witch": 3,
-    "the wicked witch": 3,
-    "s": 3,
-    "d": 3,
+    "the good witch": 4,
+    "the wicked witch": 4,
+    "s": 4,
+    "d": 4,
+    "head mod": 3,
     "moderator": 2,
     "trainee staff": 1
 }
@@ -74,9 +75,10 @@ def parse_duration(duration_str: str) -> datetime.timedelta | None:
     return datetime.timedelta(seconds=total_seconds)
 
 
-def get_highest_role_level(user: discord.Member) -> int:
+def get_highest_role_level(user: discord.Member | discord.User) -> int:
     """Get Highest Role Level"""
-
+    if not hasattr(user, "roles"):
+        return -1
     return max((role_level(role.name.lower()) for role in user.roles), default=-1)
 
 
@@ -316,8 +318,8 @@ class Moderation(commands.Cog):
     @app_commands.describe(member="The user to ban", reason="Why are they being banned?", delete_message_days="How many days of their messages to delete (0–7, optional)")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(2)
-    async def ban(self, interaction: discord.Interaction, member: discord.Member, *, reason: str, delete_message_days: int = 0):
+    @require_role(3)
+    async def ban(self, interaction: discord.Interaction, member: discord.User, *, reason: str, delete_message_days: int = 0):
         """Command to ban members from the server."""
 
         # Prevent self ban
@@ -437,7 +439,7 @@ class Moderation(commands.Cog):
                 await member.send(f"You have been banished from {interaction.guild.name} for: {reason}. A fitting end, wouldn't you agree?")
             except discord.Forbidden:
                 await interaction.followup.send("The scoundrel has blocked my attempts to inform them of their... *departure*. No matter.", ephemeral=True)
-            await member.ban(delete_message_days=delete_message_days, reason=reason)
+            await interaction.guild.ban(member, delete_message_days=delete_message_days, reason=reason)
             await interaction.followup.send(f"{member.mention} has been banished! A fitting end for their... *performance*. Their recent scribblings have been disposed of, of course.", ephemeral=False)
             await save_infraction(
                 user_id=member.id,
@@ -457,7 +459,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to unban", reason="Reason for the unban")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def unban(self, interaction: discord.Interaction, user: discord.User, *, reason: str):
         """This method will unban a user."""
         # Prevent self unban
@@ -919,7 +921,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(duration="Time (e.g. 5s, 2m, 1h)", channel="The channel to set slowmode in")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def slowmode(self, interaction: discord.Interaction, duration: str, channel: discord.TextChannel = None):
         """Sets slowmode for a channel. If channel is not given, current channel is used."""
         delta = parse_duration(duration)
@@ -1093,7 +1095,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(user="The user to clear infractions for.")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def clearinfractions(self, interaction: discord.Interaction, user: discord.Member):
         """To clear all infractions by a user."""
         async with async_session() as session:
@@ -1121,7 +1123,7 @@ class Moderation(commands.Cog):
     @app_commands.describe(channel="Channel for moderation logs")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def set_mod_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Set channel for moderation logs"""
 
@@ -1139,6 +1141,28 @@ class Moderation(commands.Cog):
 
         logger.info("Moderation log channel configured for guild %s (%s) to #%s (%s)", interaction.guild.name, guild_id, channel.name, channel.id)
         await interaction.response.send_message(f"Very well. The chronicles of our... *disciplinary actions*... shall be recorded in {channel.mention}.")
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        """Cog-level error handler for check failures and other command execution issues."""
+        if isinstance(error, app_commands.CheckFailure):
+            err_msg = str(error) or "My dear, you lack the necessary *stature* to command me in such a way."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(err_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(err_msg, ephemeral=True)
+        elif isinstance(error, app_commands.TransformerError):
+            err_msg = "I'm afraid I couldn't locate that individual. They may have... *vanished* from our presence."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(err_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(err_msg, ephemeral=True)
+        else:
+            err_msg = f"A most... *unexpected*... complication has occurred: {str(error)}"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(err_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(err_msg, ephemeral=True)
+            logger.error("An error occurred in Moderation cog: %s", error)
 
 
 async def setup(bot: commands.Bot):

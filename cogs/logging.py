@@ -536,7 +536,7 @@ class Logging(commands.Cog):
     @app_commands.describe(channel="Channel for member logs")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def set_member_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Set channel for member logging"""
         await interaction.response.defer(ephemeral=True)
@@ -561,7 +561,7 @@ class Logging(commands.Cog):
     @app_commands.describe(channel="Channel for deleted message logs")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def set_message_log(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Set channel for deleted message logging"""
         await interaction.response.defer(ephemeral=True)
@@ -586,7 +586,7 @@ class Logging(commands.Cog):
     @app_commands.describe(channels="The channels to exclude from logs (Text, Voice, or Stage), separated by commas (mentions, IDs, or names)")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def log_exclude(self, interaction: discord.Interaction, channels: str):
         """Exclude channels from logs."""
         import re
@@ -649,7 +649,7 @@ class Logging(commands.Cog):
     @app_commands.describe(channels="The channels to include back in logs, separated by commas (mentions, IDs, or names)")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def log_include(self, interaction: discord.Interaction, channels: str):
         """Remove channels from logging exclusions."""
         import re
@@ -711,7 +711,7 @@ class Logging(commands.Cog):
     @app_commands.command(name="loglistexcluded", description="List all channels excluded from logging.")
     @app_commands.guild_only()
     @app_commands.guild_install()
-    @require_role(3)
+    @require_role(4)
     async def log_list_excluded(self, interaction: discord.Interaction):
         """List all excluded channels in this guild."""
         await interaction.response.defer(ephemeral=True)

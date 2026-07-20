@@ -1,6 +1,9 @@
 from discord.ext import commands
 from discord import app_commands, Interaction, ui, Embed, Member, User, TextChannel, Thread, ButtonStyle, ChannelType
 import discord
+import logging
+
+logger = logging.getLogger("morrible")
 from sqlalchemy.future import select
 from sqlalchemy import update
 from database.tickets_db import TicketChannel, Ticket, TicketLogChannel, async_session
@@ -308,6 +311,28 @@ class Tickets(commands.Cog):
                     guild_id=guild.id, channel_id=log_channel.id))
             await session.commit()
         await interaction.response.send_message(f"The official records of our... *proceedings*... will now be kept in {log_channel.mention}. How... *official*.", ephemeral=True)
+
+    async def cog_app_command_error(self, interaction: Interaction, error: app_commands.AppCommandError):
+        """Cog-level error handler for check failures and other command execution issues."""
+        if isinstance(error, app_commands.CheckFailure):
+            err_msg = str(error) or "My dear, you lack the necessary *stature* to command me in such a way."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(err_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(err_msg, ephemeral=True)
+        elif isinstance(error, app_commands.TransformerError):
+            err_msg = "I'm afraid I couldn't locate that individual. They may have... *vanished* from our presence."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(err_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(err_msg, ephemeral=True)
+        else:
+            err_msg = f"A most... *unexpected*... complication has occurred: {str(error)}"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(err_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(err_msg, ephemeral=True)
+            logger.error("An error occurred in Tickets cog: %s", error)
 
 
 async def setup(bot: commands.Bot):
