@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from sqlalchemy import Integer, BigInteger, String, DateTime, Text, UniqueConstraint
+from sqlalchemy import Integer, BigInteger, String, DateTime, Text, UniqueConstraint, Boolean
 from sqlalchemy.sql import func
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,6 +92,19 @@ class ExcludedChannel(Base):
 
     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    is_continuous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    next_trigger: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
 
 
 async def init_db():
