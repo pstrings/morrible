@@ -102,6 +102,7 @@ class Reminder(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     is_continuous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(100), nullable=True)
     next_trigger: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
@@ -109,10 +110,16 @@ class Reminder(Base):
 
 async def init_db():
     """Initialize Database"""
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE reminders ADD COLUMN recurrence_rule VARCHAR(100)"))
+        except Exception:
+            pass
 
 
 async def close_db():
     """Close Database"""
     await engine.dispose()
+
